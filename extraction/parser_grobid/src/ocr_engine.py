@@ -1,33 +1,3 @@
-"""
-ocr_engine.py  (v7.2 — FREE local OCR, no paid API)
-
-OCR for content that survives only as images: image-based tables and equations.
-Workflow:
-    1. Render the region (page + bbox, PDF points) to a PNG via PyMuPDF.
-    2. Recognise it with a FREE, LOCAL engine:
-         - tables    -> RapidOCR (ONNX) or Tesseract  -> plain text
-         - equations -> pix2tex (LaTeX-OCR)            -> LaTeX
-    3. Return the transcription, or None on any failure.
-
-No network calls, no API key, no per-use cost. Models download once (on first
-use / on the login node) and are cached locally thereafter.
-
-Fails soft: if no backend is installed, or a call errors, ocr_* returns None and
-the caller flags the item `unrecovered`. The run never crashes.
-
-Install (into your ParserEnv, on the login node so weights cache):
-    pip install rapidocr_onnxruntime pillow pymupdf      # tables
-    pip install "pix2tex[gui]" torch --extra-index-url ... # equations (optional)
-    # Tesseract alternative for tables (needs the tesseract binary on PATH):
-    pip install pytesseract pillow
-
-Env:
-    OCR_ENABLED          "1"/"0"                         (default "1")
-    OCR_TABLE_ENGINE     auto|rapidocr|tesseract|none    (default "auto")
-    OCR_EQUATION_ENGINE  auto|pix2tex|none               (default "auto")
-    OCR_DPI              int                             (default 200)
-"""
-
 from __future__ import annotations
 import os
 import io
@@ -36,19 +6,14 @@ from text_cleanup import clean_equation_text, equation_block, merge_broken_equat
 
 _CACHE: dict[tuple, str | None] = {}
 
-# Lazily-initialised engine singletons (per process).
-_TABLE_ENGINE = "UNSET"      # becomes a callable(pil)->str|None, or None
+_TABLE_ENGINE = "UNSET"
 _EQ_ENGINE = "UNSET"
-
 
 def _dpi() -> int:
     try:
         return int(os.environ.get("OCR_DPI", "300"))
     except ValueError:
         return 300
-
-
-# ── PDF region -> PNG bytes ────────────────────────────────────────────────
 
 def _parse_coords_regions(coords: str):
     regions = []
@@ -66,7 +31,6 @@ def _parse_coords_regions(coords: str):
                 continue
     return regions
 
-
 def _union_same_page(regions):
     if not regions:
         return None
@@ -77,7 +41,6 @@ def _union_same_page(regions):
     x1 = max(r[1] + r[3] for r in same)
     y1 = max(r[2] + r[4] for r in same)
     return page, x0, y0, x1, y1
-
 
 def render_crop_png(pdf_path, page_1indexed: int, bbox_xywh, pad: float = 6.0):
     try:
@@ -102,16 +65,12 @@ def render_crop_png(pdf_path, page_1indexed: int, bbox_xywh, pad: float = 6.0):
     except Exception:
         return None
 
-
 def _png_to_pil(png_bytes):
     try:
         from PIL import Image
         return Image.open(io.BytesIO(png_bytes)).convert("RGB")
     except Exception:
         return None
-
-
-# ── Free table engines ─────────────────────────────────────────────────────
 
 def _build_rapidocr():
     try:
@@ -137,10 +96,9 @@ def _build_rapidocr():
             return None
     return run
 
-
 def _build_tesseract():
     try:
-        import pytesseract  # noqa
+        import pytesseract
     except Exception:
         return None
 
@@ -152,7 +110,6 @@ def _build_tesseract():
         except Exception:
             return None
     return run
-
 
 def _build_pix2tex():
     try:
@@ -173,7 +130,6 @@ def _build_pix2tex():
             return None
     return run
 
-
 def _table_engine():
     global _TABLE_ENGINE
     if _TABLE_ENGINE != "UNSET":
@@ -189,7 +145,6 @@ def _table_engine():
     _TABLE_ENGINE = engine
     return engine
 
-
 def _equation_engine():
     global _EQ_ENGINE
     if _EQ_ENGINE != "UNSET":
@@ -203,18 +158,14 @@ def _equation_engine():
     _EQ_ENGINE = engine
     return engine
 
-
 def ocr_enabled() -> bool:
-    """True if OCR is on and at least one backend (table or equation) loaded."""
+
     if os.environ.get("OCR_ENABLED", "1") != "1":
         return False
     return (_table_engine() is not None) or (_equation_engine() is not None)
 
-
-
-
 def _preprocess_table_pil(pil):
-    """Light, safe preprocessing for small-font table OCR."""
+
     try:
         from PIL import ImageOps, ImageFilter, ImageEnhance
         img = pil.convert("L")
@@ -225,9 +176,8 @@ def _preprocess_table_pil(pil):
     except Exception:
         return pil
 
-
 def _words_to_markdown(words: list[dict]) -> tuple[str, float, list[str]]:
-    """Reconstruct rows/columns from OCR word coordinates."""
+
     reasons: list[str] = []
     words = [w for w in words if (w.get("text") or "").strip()]
     if not words:
@@ -252,7 +202,6 @@ def _words_to_markdown(words: list[dict]) -> tuple[str, float, list[str]]:
             rows.append([w])
     rows = [sorted(r, key=lambda w: float(w.get("x", 0))) for r in rows]
 
-    # Build column anchors from x positions. This is intentionally simple and robust.
     xs = sorted(float(w.get("x", 0)) for w in words)
     if not xs:
         return "", 0.0, ["no_x_positions"]
@@ -277,7 +226,7 @@ def _words_to_markdown(words: list[dict]) -> tuple[str, float, list[str]]:
             j = min(range(len(anchors)), key=lambda k: abs(x - anchors[k])) if anchors else 0
             txt = str(w.get("text") or "").strip()
             cells[j] = (cells[j] + " " + txt).strip() if cells[j] else txt
-        # trim empty ends
+
         while cells and not cells[-1]:
             cells.pop()
         while cells and not cells[0]:
@@ -298,7 +247,6 @@ def _words_to_markdown(words: list[dict]) -> tuple[str, float, list[str]]:
     if reasons:
         structure -= 0.15
     return markdown, round(max(0.0, min(1.0, structure)), 3), reasons
-
 
 def _tesseract_table_data(pil) -> tuple[list[dict], float | None]:
     try:
@@ -330,7 +278,6 @@ def _tesseract_table_data(pil) -> tuple[list[dict], float | None]:
     avg_conf = round(sum(confs) / len(confs), 3) if confs else None
     return words, avg_conf
 
-
 def _rapidocr_table_data(pil) -> tuple[list[dict], float | None]:
     try:
         from rapidocr_onnxruntime import RapidOCR
@@ -356,9 +303,8 @@ def _rapidocr_table_data(pil) -> tuple[list[dict], float | None]:
     avg_conf = round(sum(confs) / len(confs), 3) if confs else None
     return words, avg_conf
 
-
 def ocr_table_region(pdf_path, page_1indexed: int, bbox_xywh) -> dict | None:
-    """OCR a table region and return text + reconstructed markdown + confidence."""
+
     if os.environ.get("OCR_ENABLED", "1") != "1":
         return None
     key = (str(pdf_path), int(page_1indexed), tuple(round(v, 1) for v in bbox_xywh), "table_structured")
@@ -385,7 +331,7 @@ def ocr_table_region(pdf_path, page_1indexed: int, bbox_xywh) -> dict | None:
     markdown, structure_conf, reasons = _words_to_markdown(words)
     text = markdown
     if not text:
-        # Legacy fallback: whatever engine is available as plain text.
+
         engine = _table_engine()
         text = engine(pil) if engine else None
         markdown = text or ""
@@ -401,8 +347,6 @@ def ocr_table_region(pdf_path, page_1indexed: int, bbox_xywh) -> dict | None:
     }
     _CACHE[key] = out
     return out
-
-# ── Public OCR API (unchanged signatures) ──────────────────────────────────
 
 def ocr_region(pdf_path, page_1indexed: int, bbox_xywh, kind: str) -> str | None:
     if os.environ.get("OCR_ENABLED", "1") != "1":
@@ -420,7 +364,6 @@ def ocr_region(pdf_path, page_1indexed: int, bbox_xywh, kind: str) -> str | None
     _CACHE[key] = result
     return result
 
-
 def ocr_equation_coords(pdf_path, coords: str) -> str | None:
     if os.environ.get("OCR_ENABLED", "1") != "1":
         return None
@@ -433,14 +376,8 @@ def ocr_equation_coords(pdf_path, coords: str) -> str | None:
     page, x0, y0, x1, y1 = u
     return ocr_region(pdf_path, page, (x0, y0, x1 - x0, y1 - y0), "equation")
 
-
 def resolve_equations(all_sections: list[dict], pdf_path) -> int:
-    """Replace [[EQN:n]] placeholders with readable in-text equation blocks.
 
-    Priority: OCR LaTeX when available; otherwise cleaned GROBID raw formula.
-    The equation remains in the section text as [Equation N: ...], so downstream
-    LLM prompts do not need a separate equation file.
-    """
     n_ok = 0
     for sec in all_sections:
         eqs = sec.get("equations") or []

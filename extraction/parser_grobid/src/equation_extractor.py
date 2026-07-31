@@ -1,16 +1,3 @@
-"""
-equation_extractor.py (v11)
-
-Production-oriented equation extraction.
-Fixes in v11:
-- Rejects table/prose false positives.
-- Splits one GROBID formula containing multiple printed equation numbers.
-- Regenerates unique stable equation IDs after filtering.
-- Keeps printed number separate from internal ID.
-- Adds latex_like_text and stricter confidence labels.
-- Removes rejected equation placeholders from body text.
-"""
-
 from __future__ import annotations
 import re
 from text_cleanup import clean_equation_text, clean_text_artifacts
@@ -26,10 +13,8 @@ from pdf_text_locator import infer_page_for_text
 _EQ_PLACEHOLDER_RE = re.compile(r"\[\[EQN:(?P<id>\d+)\]\]")
 _STANDALONE_CONTINUATION_RE = re.compile(r"^\s*[)\]}]+\s*(?:\(?(?P<num>\d{1,3})\)?)?\s*$")
 
-
 def _placeholder_from_printed(num) -> str:
     return f"[Equation {num} here]" if num is not None else "[Equation here]"
-
 
 def _replace_placeholders(sec: dict, old_ids: list, replacement: str) -> int:
     count = 0
@@ -42,7 +27,6 @@ def _replace_placeholders(sec: dict, old_ids: list, replacement: str) -> int:
                 sec[field] = sec[field].replace(old, replacement)
                 count += 1
     return count
-
 
 def _merge_standalone_fragments(eqs: list[dict]) -> tuple[list[dict], int, int]:
     merged: list[dict] = []
@@ -79,7 +63,6 @@ def _merge_standalone_fragments(eqs: list[dict]) -> tuple[list[dict], int, int]:
         i += 1
     return merged, repairs, dropped
 
-
 def _expand_multi_numbered(eq: dict) -> list[dict]:
     parts = split_multiple_numbered_equations(eq.get("raw") or "")
     if len(parts) <= 1:
@@ -90,16 +73,13 @@ def _expand_multi_numbered(eq: dict) -> list[dict]:
         e = dict(eq)
         e["raw"] = part
         e["split_from_multi_numbered_formula"] = True
-        # First split consumes original placeholders; later splits do not have a
-        # separate TEI placeholder but should still appear in equations.json.
+
         e["merged_from_ids"] = ids if k == 0 else []
         out.append(e)
     return out
 
-
 def _section_for_equation(sec: dict) -> tuple[str | None, str, int | None]:
     return sec.get("imrad"), sec.get("heading", "") or "", sec.get("page")
-
 
 def extract_equations_from_sections(sections: list[dict], raw_pages: list[str] | None = None) -> tuple[list[dict], dict]:
     equations: list[dict] = []
@@ -157,7 +137,7 @@ def extract_equations_from_sections(sections: list[dict], raw_pages: list[str] |
 
             inferred_page = eq.get("page") or sec_page or infer_page_for_text(clean or raw, raw_pages)
             record = {
-                "equation_id": "",  # filled after final filtering
+                "equation_id": "",
                 "label": f"Equation {printed_num}" if printed_num is not None else "Equation",
                 "num": printed_num,
                 "page": inferred_page,
@@ -186,7 +166,6 @@ def extract_equations_from_sections(sections: list[dict], raw_pages: list[str] |
             equations.append(record)
             placeholders_replaced += _replace_placeholders(sec, merged_ids, record["placeholder"])
 
-        # Safety: remove any orphan formula placeholders that were not accepted.
         for field in ("text", "text_no_tables"):
             txt = sec.get(field) or ""
             def repl(m):
@@ -195,7 +174,6 @@ def extract_equations_from_sections(sections: list[dict], raw_pages: list[str] |
                 return ""
             sec[field] = _EQ_PLACEHOLDER_RE.sub(repl, txt)
 
-    # Stable internal IDs must be unique and independent from printed numbers.
     for i, rec in enumerate(equations, start=1):
         rec["equation_id"] = f"eq{i:03d}"
         if rec.get("num") is None:
@@ -214,7 +192,6 @@ def extract_equations_from_sections(sections: list[dict], raw_pages: list[str] |
         "page_null_equations": sum(1 for e in equations if e.get("page") is None),
     }
     return equations, stats
-
 
 def build_equations_dict(*, doi: str, extraction_timestamp: str, sections: list[dict], raw_pages: list[str] | None = None) -> dict:
     equations, stats = extract_equations_from_sections(sections, raw_pages=raw_pages)

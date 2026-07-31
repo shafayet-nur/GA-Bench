@@ -1,60 +1,20 @@
-"""
-PyMuPDF-based fallback for figures pdffigures2 couldn't extract correctly.
-
-When pdffigures2 produces a "suspect" figure (tiny bbox, almost certainly the
-page-header strip rather than the real figure), we re-render the *entire page*
-where that figure's caption sits, using PyMuPDF.
-
-This won't give a properly-cropped figure, but it guarantees the figure is
-*somewhere* in the rendered image. The downstream consumer (an LLM or a human
-reviewer) can find it. Far better than a 25-pixel-tall header strip.
-
-The fallback overwrites the bad PNG produced by pdffigures2 with a full-page
-render at the same DPI (150 by default, matching pdffigures2's setting).
-The figure dict gets new fields:
-    extraction_method: "pdffigures2" (default) or "pymupdf_full_page" (fallback)
-    extraction_quality: "good" | "page_render" | "header_strip"
-
-Usage:
-    from pymupdf_fallback import apply_fallback_to_suspect_figures
-
-    enriched_figures = apply_fallback_to_suspect_figures(
-        figures=figures_from_pdffigures2,
-        pdf_path="/path/to/paper.pdf",
-        figures_dir="/path/to/output/figures",
-        dpi=150,
-    )
-"""
-
 from __future__ import annotations
 from pathlib import Path
 
-import fitz  # PyMuPDF
+import fitz
 
 from typing import Iterable
 
-
-# Quality thresholds — extended in v2 to catch vertical/horizontal slivers
-# and extreme aspect ratios that v1 missed (e.g. paper 3's fig05: w=35px h=266px).
 MIN_BBOX_HEIGHT_PX = 50
-MIN_BBOX_WIDTH_PX = 60       # NEW in v2: catches vertical slivers
+MIN_BBOX_WIDTH_PX = 60
 MIN_BBOX_AREA_PX = 5000
 MIN_IMAGE_FILE_SIZE_KB = 8
-MAX_ASPECT_RATIO = 10.0      # NEW in v2: w/h or h/w > 10 is almost certainly a sliver
-
+MAX_ASPECT_RATIO = 10.0
 
 def _is_suspect(fig: dict, figures_dir: Path) -> tuple[bool, list[str]]:
-    """
-    Determine whether a figure's pdffigures2 output is suspect.
-    Returns (is_suspect, reasons).
 
-    v2 changes: also flags vertical/horizontal slivers (one dimension very small)
-    and extreme aspect ratios (e.g. 10:1 strips that pdffigures2 sometimes returns
-    when it detects only a panel label region instead of the full figure).
-    """
     reasons: list[str] = []
 
-    # Image file checks
     img_name = fig.get("image_file")
     if not img_name:
         reasons.append("no image_file field")
@@ -67,7 +27,6 @@ def _is_suspect(fig: dict, figures_dir: Path) -> tuple[bool, list[str]]:
             if size_kb < MIN_IMAGE_FILE_SIZE_KB:
                 reasons.append(f"image too small ({size_kb:.1f} KB)")
 
-    # Bbox checks
     bbox = fig.get("bounding_box")
     if bbox:
         h = bbox.get("h", 0)
@@ -79,7 +38,7 @@ def _is_suspect(fig: dict, figures_dir: Path) -> tuple[bool, list[str]]:
             reasons.append(f"bbox width too small ({w:.0f}px)")
         if area < MIN_BBOX_AREA_PX:
             reasons.append(f"bbox area too small ({area:.0f}px²)")
-        # Aspect-ratio sliver detection: w=35, h=266 → ratio 7.6, but if more extreme.
+
         if h > 0 and w > 0:
             ratio = max(h / w, w / h)
             if ratio > MAX_ASPECT_RATIO:
@@ -87,9 +46,8 @@ def _is_suspect(fig: dict, figures_dir: Path) -> tuple[bool, list[str]]:
 
     return (len(reasons) > 0), reasons
 
-
 def _find_duplicate_bbox_indices(figures: list[dict]) -> set[int]:
-    """Indices of figures whose bbox is shared with another figure (rounded to 1px)."""
+
     from collections import defaultdict
     groups = defaultdict(list)
     for i, fig in enumerate(figures):
@@ -105,31 +63,27 @@ def _find_duplicate_bbox_indices(figures: list[dict]) -> set[int]:
             suspect.update(indices)
     return suspect
 
-
 def _render_pdf_page(
     pdf_path: Path,
     page_number_1indexed: int,
     out_png_path: Path,
     dpi: int = 150,
 ) -> bool:
-    """
-    Render a single PDF page to PNG at the given DPI.
-    Returns True on success.
-    """
+
     try:
         doc = fitz.open(str(pdf_path))
     except Exception:
         return False
 
     try:
-        # Convert 1-indexed page to 0-indexed for PyMuPDF.
+
         page_idx = page_number_1indexed - 1
         if page_idx < 0 or page_idx >= doc.page_count:
             doc.close()
             return False
 
         page = doc[page_idx]
-        # PyMuPDF's default zoom is 72 DPI; scale up to match the requested DPI.
+
         zoom = dpi / 72.0
         matrix = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=matrix, alpha=False)
@@ -145,34 +99,13 @@ def _render_pdf_page(
             pass
         return False
 
-
 def apply_fallback_to_suspect_figures(
     figures: list[dict],
     pdf_path: str | Path,
     figures_dir: str | Path,
     dpi: int = 150,
 ) -> list[dict]:
-    """
-    For each suspect figure, re-render the full page with PyMuPDF and overwrite
-    the bad pdffigures2 PNG. Tag every figure with extraction_method and
-    extraction_quality fields.
 
-    Args:
-        figures: list of figure dicts as produced by pdffigures2_runner.run_pdffigures2()
-        pdf_path: path to the source PDF
-        figures_dir: directory containing the pdffigures2-extracted PNGs (and where
-                     PyMuPDF will write replacements)
-        dpi: render DPI for fallbacks (default 150, matching pdffigures2)
-
-    Returns: a new list of figure dicts (originals not mutated). Each figure has
-        added fields:
-            extraction_method: "pdffigures2" | "pymupdf_full_page"
-            extraction_quality: "good" | "page_render" | "header_strip"
-            quality_reasons: list[str]  (empty for good ones)
-        Suspect figures whose fallback succeeded keep their original metadata
-        (label, caption, page, bounding_box) — only the image file content
-        changes on disk.
-    """
     pdf_path = Path(pdf_path)
     figures_dir = Path(figures_dir)
 
@@ -180,7 +113,7 @@ def apply_fallback_to_suspect_figures(
 
     out: list[dict] = []
     for i, fig in enumerate(figures):
-        new_fig = dict(fig)  # shallow copy
+        new_fig = dict(fig)
 
         suspect, reasons = _is_suspect(fig, figures_dir)
         if i in duplicate_indices:
@@ -194,12 +127,11 @@ def apply_fallback_to_suspect_figures(
             out.append(new_fig)
             continue
 
-        # Suspect — try fallback.
         page = fig.get("page")
         img_name = fig.get("image_file")
 
         if not page or not img_name:
-            # Can't fall back without a page or a target filename.
+
             new_fig["extraction_method"] = "pdffigures2"
             new_fig["extraction_quality"] = "header_strip"
             new_fig["quality_reasons"] = reasons + ["no page or image_file for fallback"]
@@ -213,7 +145,7 @@ def apply_fallback_to_suspect_figures(
             new_fig["extraction_method"] = "pymupdf_full_page"
             new_fig["extraction_quality"] = "page_render"
             new_fig["quality_reasons"] = reasons
-            # Refresh the on-disk file size (in case downstream cares)
+
             try:
                 new_fig["_image_size_kb"] = target_path.stat().st_size / 1024
             except OSError:
@@ -227,12 +159,8 @@ def apply_fallback_to_suspect_figures(
 
     return out
 
-
 if __name__ == "__main__":
-    # Standalone smoke test: given an existing test_outputs/<paper>/ dir
-    # with a source.pdf and figures/ + data/ from pdffigures2, re-evaluate
-    # all figures and apply fallback. Useful for inspecting fallback output
-    # without re-running pdffigures2.
+
     import sys, json
     if len(sys.argv) != 2:
         print("Usage: python3 pymupdf_fallback.py <paper_dir>")
@@ -248,7 +176,6 @@ if __name__ == "__main__":
         print(f"No source.pdf at {pdf_path}")
         sys.exit(1)
 
-    # Find pdffigures2 JSON (named after the original PDF stem).
     json_files = list(data_dir.glob("*.json"))
     if not json_files:
         print(f"No pdffigures2 JSON in {data_dir}")
@@ -259,7 +186,6 @@ if __name__ == "__main__":
         raw = json.load(f)
     raw_figs = raw.get("figures", []) if isinstance(raw, dict) else raw
 
-    # Reshape to our internal format (subset that the fallback needs).
     minimal_figs = []
     for rf in raw_figs:
         page = rf.get("page")

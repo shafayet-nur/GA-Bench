@@ -1,24 +1,9 @@
-"""
-GROBID TEI figure fallback (v6).
-
-v6 changes vs v5.3:
-    1. crosscheck_bbox_with_pymupdf now triggers on BOTH null bounding_box AND
-       absurdly small bboxes (width < 80px or height < 80px). v5.3 only
-       triggered on null bbox, missing cases like Figure 10 in sample 2 where
-       pdffigures2 returned a 46px-wide sliver.
-    2. recover_table_bbox_pymupdf also triggers on absurdly small table bboxes.
-    3. Minor: added bbox area sanity check — recovered bbox must be at least
-       2% of the page area to be accepted (prevents icon/logo false matches).
-
-Everything else unchanged from v5.3.
-"""
-
 from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Optional
 
-import fitz  # PyMuPDF
+import fitz
 from lxml import etree
 
 from label_utils import (
@@ -31,9 +16,7 @@ from label_utils import (
 )
 from text_cleanup import clean_text_artifacts
 
-
 TEI_NS = {"tei": "http://www.tei-c.org/ns/1.0"}
-
 
 def _parse_page_from_coords(coords: str) -> Optional[int]:
     if not coords:
@@ -47,7 +30,6 @@ def _parse_page_from_coords(coords: str) -> Optional[int]:
     except (ValueError, TypeError):
         return None
 
-
 def _classify_tei_figure_type(label: str, caption: str) -> str:
     rec = parse_label(label) or parse_label(caption)
     if rec:
@@ -58,7 +40,6 @@ def _classify_tei_figure_type(label: str, caption: str) -> str:
     if re.match(r"\s*scheme\b", text):
         return "scheme"
     return "figure"
-
 
 def parse_tei_figures(tei_xml_path: str | Path) -> list[dict]:
     tei_xml_path = Path(tei_xml_path)
@@ -136,7 +117,6 @@ def parse_tei_figures(tei_xml_path: str | Path) -> list[dict]:
 
     return figures
 
-
 def _render_page_to_png(pdf_path: Path, page_1indexed: int, out_png: Path, dpi: int = 150) -> bool:
     try:
         doc = fitz.open(str(pdf_path))
@@ -159,7 +139,6 @@ def _render_page_to_png(pdf_path: Path, page_1indexed: int, out_png: Path, dpi: 
             doc.close()
         except Exception:
             pass
-
 
 def extract_tei_figures_with_images(
     tei_xml_path: str | Path,
@@ -196,7 +175,6 @@ def extract_tei_figures_with_images(
         })
 
     return enriched
-
 
 def _find_caption_page(pdf_path: Path, anchor_match: str, kind: str, number: str, prefix: str) -> Optional[int]:
     kind_word = {"figure": "Figure", "table": "Table", "scheme": "Scheme"}[kind]
@@ -235,7 +213,6 @@ def _find_caption_page(pdf_path: Path, anchor_match: str, kind: str, number: str
             doc.close()
         except Exception:
             pass
-
 
 def recover_figures_by_caption_scan(
     pdf_path: str | Path,
@@ -284,7 +261,6 @@ def recover_figures_by_caption_scan(
         })
     return out
 
-
 def merge_pdffigures2_and_tei(pf2_figures: list[dict], tei_figures: list[dict]) -> list[dict]:
     pf2_keys = set()
     for f in pf2_figures:
@@ -304,21 +280,18 @@ def merge_pdffigures2_and_tei(pf2_figures: list[dict], tei_figures: list[dict]) 
 
     return list(pf2_figures) + additions
 
-
 _STUB_CAPTION_MAX_LEN = 25
 
-
 def _caption_badness(caption: str) -> int:
-    """Small heuristic: higher score means more obvious PDF/caption corruption."""
+
     c = caption or ""
     bad = 0
     bad += c.count("�") * 5
     bad += c.count("  ")
     bad += len(re.findall(r"\b(?:s|vs|emove|tep|ntroduced|reen)\b", c, re.IGNORECASE))
-    # Many isolated one-letter lowercase words often signal dropped first letters.
+
     bad += len(re.findall(r"\b[a-z]\b", c)) // 3
     return bad
-
 
 def _caption_incomplete(caption: str) -> bool:
     c = clean_text_artifacts(caption or "").strip()
@@ -330,7 +303,6 @@ def _caption_incomplete(caption: str) -> bool:
         or re.search(r"(?:for details,? see|see|shown in|described in)\s*$", c, re.IGNORECASE)
         or tail.endswith(("see", "for details", "for details see"))
     )
-
 
 def enrich_stub_captions(
     figures: list[dict],
@@ -368,15 +340,10 @@ def enrich_stub_captions(
             fig["caption"] = cap
     return enriched
 
-# ─────────────────────────────────────────────────────────────────────────────
-# v6: bbox size threshold for triggering recovery
-# ─────────────────────────────────────────────────────────────────────────────
-
-MIN_BBOX_DIMENSION_PT = 80  # minimum width/height in points before bbox is "absurd"
-
+MIN_BBOX_DIMENSION_PT = 80
 
 def _bbox_is_absurd(bbox: dict | None) -> bool:
-    """True if bbox is None or too small to be a real figure/table."""
+
     if bbox is None:
         return True
     if not isinstance(bbox, dict):
@@ -387,7 +354,6 @@ def _bbox_is_absurd(bbox: dict | None) -> bool:
         return True
     return False
 
-
 def crosscheck_bbox_with_pymupdf(
     figures: list[dict],
     pdf_path: str | Path,
@@ -395,13 +361,10 @@ def crosscheck_bbox_with_pymupdf(
     min_image_area_ratio: float = 0.02,
     dpi: int = 150,
 ) -> int:
-    """
-    v6: triggers on both null bbox AND absurdly small bboxes.
-    """
+
     pdf_path = Path(pdf_path)
     output_figures_dir = Path(output_figures_dir)
 
-    # v6: check for absurdly small bboxes too, not just null
     needs_fix = [(i, fig) for i, fig in enumerate(figures)
                  if fig.get("page") is not None and _bbox_is_absurd(fig.get("bounding_box"))]
     if not needs_fix:
@@ -481,20 +444,16 @@ def crosscheck_bbox_with_pymupdf(
 
     return fixed
 
-
 def recover_table_bbox_pymupdf(
     tables: list[dict],
     pdf_path: str | Path,
     output_dir: str | Path,
     dpi: int = 150,
 ) -> int:
-    """
-    v6: triggers on null bbox, suspicious crop quality, AND absurdly small bboxes.
-    """
+
     pdf_path = Path(pdf_path)
     output_dir = Path(output_dir)
 
-    # v6: also trigger on absurdly small bboxes
     needs_fix = [(i, t) for i, t in enumerate(tables)
                  if t.get("page") is not None and (
                      t.get("crop_quality") == "suspicious"
@@ -529,7 +488,7 @@ def recover_table_bbox_pymupdf(
             best_table = None
 
             if existing_bbox and isinstance(existing_bbox, dict) and existing_bbox.get("x") is not None:
-                # v6: only use existing bbox as reference if it's not absurd
+
                 if not _bbox_is_absurd(existing_bbox):
                     ex_cx = existing_bbox["x"] + existing_bbox.get("w", 0) / 2
                     ex_cy = existing_bbox["y"] + existing_bbox.get("h", 0) / 2
@@ -543,7 +502,7 @@ def recover_table_bbox_pymupdf(
                             best_dist = dist
                             best_table = pt
                 else:
-                    # Absurd existing bbox: pick the largest table
+
                     best_area = 0
                     for pt in pymupdf_tables.tables:
                         r = pt.bbox
@@ -598,7 +557,6 @@ def recover_table_bbox_pymupdf(
             pass
 
     return fixed
-
 
 if __name__ == "__main__":
     import sys

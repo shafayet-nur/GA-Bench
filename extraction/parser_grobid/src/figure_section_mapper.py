@@ -1,29 +1,3 @@
-"""
-Figure-section mapper (v8).
-
-v7 changes vs v6:
-    1. Effective-IMRaD resolution. A figure mention found in a non-IMRaD
-       subsection heading (e.g. "Database of locations of cocoa") used to be
-       bucketed under that raw heading. Now each section is resolved to its
-       effective IMRaD label by forward-filling the nearest preceding IMRaD
-       label (with a light heading guess for combined headings the parser
-       missed, and a reset at back-matter). Figure mentions are bucketed under
-       that effective IMRaD label, so assigned_section is one of
-       introduction / methods / results / discussion whenever possible.
-    2. Page-proximity fallback. Figures whose in-text mention was lost during
-       GROBID segmentation (truncated paragraphs, appendix figures) used to end
-       up "unassigned". When a figure has zero mentions, it is now assigned to
-       the IMRaD section whose start page is the latest at or before the
-       figure's page. Requires sections to carry `page` (tei_parser v7.1).
-    3. The mapper now sets `assigned_section` and `assignment_method` directly
-       on each figure ("mention_based" / "page_proximity" / "unassigned"); the
-       output writer honours these instead of recomputing from mentions only.
-
-All label parsing / mention counting (label_utils-based id assignment, mention
-counting via anchor finder, range/list expansion, dedup with letter suffix) is
-unchanged from v6.
-"""
-
 from __future__ import annotations
 import re
 
@@ -31,18 +5,15 @@ from label_utils import parse_label, find_caption_anchors
 
 try:
     from imrad_classifier import classify_imrad as _classify_imrad, is_non_imrad_heading as _is_non_imrad_heading
-except Exception:  # pragma: no cover - defensive
+except Exception:
     def _classify_imrad(_h):
         return None
 
     def _is_non_imrad_heading(_h):
         return False
 
-
 _IMRAD = {"introduction", "methods", "results", "discussion"}
 
-# Headings that should stop IMRaD forward-fill (figures after these don't
-# inherit the last body label).
 _BACKMATTER_RE = re.compile(
     r"\b(?:references?|bibliography|appendix|appendices|acknowledge?ments?|"
     r"supplementary|supporting\s+information|funding|declarations?|"
@@ -51,8 +22,6 @@ _BACKMATTER_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Light fallback for combined / unusual headings the main classifier misses
-# (e.g. "Methods and data", "Data and methods"), used only to drive forward-fill.
 _LOCAL_GUESS = [
     (re.compile(r"\b(?:methods?\s+and\s+data|data\s+and\s+methods?|"
                 r"materials?\s+and\s+methods?|methodolog|experimental|"
@@ -61,7 +30,6 @@ _LOCAL_GUESS = [
     (re.compile(r"\bdiscussion\b|\bconclusion", re.IGNORECASE), "discussion"),
     (re.compile(r"\bintroduction\b|\bbackground\b", re.IGNORECASE), "introduction"),
 ]
-
 
 def _guess_imrad(heading: str) -> str | None:
     if not heading:
@@ -73,7 +41,6 @@ def _guess_imrad(heading: str) -> str | None:
         if rx.search(heading):
             return lab
     return None
-
 
 def _section_key(section: dict) -> str:
     if section.get("imrad"):
@@ -87,11 +54,8 @@ def _section_key(section: dict) -> str:
     heading = re.sub(r"\s+", " ", heading).strip()
     return heading if heading else "_unlabeled"
 
-
 def _effective_imrad_per_section(sections: list[dict]) -> list[str | None]:
-    """Forward-fill the nearest preceding IMRaD label so subsections inherit
-    their parent's bucket. Resets at back-matter so post-body figures don't
-    inherit the last body label."""
+
     eff: list[str | None] = []
     last: str | None = None
     for s in sections:
@@ -110,7 +74,6 @@ def _effective_imrad_per_section(sections: list[dict]) -> list[str | None]:
             eff.append(last)
     return eff
 
-
 def _effective_keys(sections: list[dict], eff_imrad: list[str | None]) -> list[str]:
     keys = []
     for s, ei in zip(sections, eff_imrad):
@@ -120,17 +83,13 @@ def _effective_keys(sections: list[dict], eff_imrad: list[str | None]) -> list[s
             keys.append(_section_key(s))
     return keys
 
-
 def _dominant(mentions: dict) -> str | None:
     if not mentions:
         return None
     return sorted(mentions.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
 
-
 def _assign_by_page(fig_page, sections: list[dict], eff_imrad: list[str | None]) -> str | None:
-    """Latest IMRaD section that starts at or before the figure's page.
-    Returns None if no section carries a usable `page` (e.g. GROBID emitted no
-    <head> coords) — the caller then falls back to _assign_by_figure_pages."""
+
     if fig_page is None:
         return None
     best = None
@@ -145,12 +104,8 @@ def _assign_by_page(fig_page, sections: list[dict], eff_imrad: list[str | None])
             best = k
     return best
 
-
 def _assign_by_figure_pages(fig_page, page_anchors: list[tuple[int, str]]) -> str | None:
-    """Fallback used when sections carry no page info. `page_anchors` is a list
-    of (page, imrad_bucket) built from the figures that DID get a mention-based
-    assignment. The unmentioned figure inherits the bucket of the nearest such
-    figure by page number (ties prefer the later page / results-side)."""
+
     if fig_page is None or not page_anchors:
         return None
     best = None
@@ -164,7 +119,6 @@ def _assign_by_figure_pages(fig_page, page_anchors: list[tuple[int, str]]) -> st
             best = bucket
     return best
 
-
 def _strip_caption_text(section_text: str, captions: list[str]) -> str:
     cleaned = section_text
     for cap in captions:
@@ -175,7 +129,6 @@ def _strip_caption_text(section_text: str, captions: list[str]) -> str:
             cleaned = cleaned.replace(cap_head, " ")
     return cleaned
 
-
 _LIST_SEP = r"\s*(?:(?:,|;)\s*(?:and\s+)?|\s+and\s+|\s*&\s*)"
 _RANGE_RES = {
     "figure": re.compile(r"\b(?:Fig(?:s|ures?)?)\.?\s*(\d+)\s*(?:-|\u2013|\u2014|to)\s*(\d+)(?![0-9])", re.IGNORECASE),
@@ -185,7 +138,6 @@ _LIST_RES = {
     "figure": re.compile(r"\b(?:Fig(?:s|ures?)?)\.?\s*(\d+(?:" + _LIST_SEP + r"\d+)+)(?![0-9])", re.IGNORECASE),
     "table":  re.compile(r"\b(?:Tab(?:les?)?)\.?\s*(\d+(?:" + _LIST_SEP + r"\d+)+)(?![0-9])", re.IGNORECASE),
 }
-
 
 def _count_mentions_for_key(section_text: str, target_key: str, kind: str) -> int:
     if not section_text or not target_key:
@@ -219,10 +171,8 @@ def _count_mentions_for_key(section_text: str, target_key: str, kind: str) -> in
                     count += 1
     return count
 
-
 def _assign_figure_id(fig: dict, fallback_idx: int) -> str:
-    # Prefer an id already derived from the real caption label. This preserves
-    # supplementary/appendix labels such as fig_S8 and fig_A_1.
+
     hinted = fig.get("figure_id_hint")
     if hinted:
         return hinted
@@ -232,7 +182,6 @@ def _assign_figure_id(fig: dict, fallback_idx: int) -> str:
     fig_type = fig.get("type", "figure")
     prefix = {"figure": "fig", "table": "table", "scheme": "scheme"}.get(fig_type, "fig")
     return f"{prefix}_unlabeled_{fallback_idx:02d}"
-
 
 def map_figures_to_sections(
     figures: list[dict],
@@ -244,7 +193,6 @@ def map_figures_to_sections(
         body = s.get("text_no_tables") or s.get("text") or ""
         cleaned_section_texts.append(_strip_caption_text(body, all_captions))
 
-    # v7: resolve each section to its effective IMRaD bucket.
     eff_imrad = _effective_imrad_per_section(sections)
     eff_keys = _effective_keys(sections, eff_imrad)
 
@@ -261,10 +209,6 @@ def map_figures_to_sections(
             unique_id = base_id
         assigned_ids.append(unique_id)
 
-    # Pass 1: mention-based assignment. Also collect (page, bucket) anchors from
-    # every figure that got a confident mention-based bucket — these let us place
-    # mention-less figures even when sections carry no page info (GROBID emitted
-    # no <head> coords, so section["page"] is None everywhere).
     enriched = []
     page_anchors: list[tuple[int, str]] = []
     for fig, figure_id in zip(figures, assigned_ids):
@@ -304,9 +248,6 @@ def map_figures_to_sections(
             new_fig["assignment_method"] = "unassigned"
         enriched.append(new_fig)
 
-    # Pass 2: resolve the still-unassigned figures. Prefer section-page proximity
-    # (needs section["page"]); if that yields nothing, fall back to the nearest
-    # mention-anchored figure by page number.
     for new_fig in enriched:
         if new_fig["assignment_method"] != "unassigned":
             continue
@@ -333,7 +274,6 @@ def map_figures_to_sections(
 
     return enriched
 
-
 if __name__ == "__main__":
     sections = [
         {"heading": "Introduction", "imrad": "introduction", "page": 1,
@@ -351,7 +291,7 @@ if __name__ == "__main__":
         {"label": "Figure 1", "type": "figure", "caption": "FIGURE 1", "page": 1},
         {"label": "Figure 2", "type": "figure", "caption": "FIGURE 2 ...", "page": 3},
         {"label": "Figure 3", "type": "figure", "caption": "FIGURE 3 ...", "page": 5},
-        # No mention anywhere; sits on page 8 -> should map to discussion by page.
+
         {"label": "Figure 4", "type": "figure", "caption": "FIGURE 4 ...", "page": 8},
     ]
     for f in map_figures_to_sections(figs, sections):

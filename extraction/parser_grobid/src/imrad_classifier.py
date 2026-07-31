@@ -1,28 +1,3 @@
-"""
-IMRaD section classifier (v8.1).
-
-v6 changes vs v5.3:
-    1. Methods propagation scope limiter. In v5.3, once a "methods" label was
-       assigned, it propagated to ALL subsequent unlabeled sections until
-       another IMRaD heading was hit. This caused results/discussion subsections
-       with technique-specific headings (e.g. "XRD", "Differential pulse
-       voltammetry", "Sensing mechanism") to inherit the methods label. v6 adds
-       a propagation budget: methods propagation stops after N consecutive
-       unlabeled sections (default 4), preventing runaway inheritance.
-    2. Expanded SYNONYM_PATTERNS for results: added technique-specific result
-       headings commonly found in chemistry/materials/sensor papers: "XRD",
-       "XPS", "FESEM", "SEM", "TEM", "EIS", "cyclic voltammetry", "DPV",
-       "sensing mechanism", "interference", "selectivity", "reproducibility",
-       "stability", "real water sample", "practical implication".
-    3. Section role tagging: sections that look like characterization results
-       (heading matches a known analytical technique) get tagged as results
-       even when they follow a methods section, overriding propagation.
-    4. is_characterization_heading() detects technique-specific headings that
-       are almost always results, not methods.
-
-Public API unchanged.
-"""
-
 from __future__ import annotations
 
 import re
@@ -30,7 +5,6 @@ from collections import Counter
 
 IMRAD_CATEGORIES = ["introduction", "methods", "results", "discussion"]
 
-# Max consecutive unlabeled sections that inherit via propagation.
 MAX_PROPAGATION_DEPTH = 4
 
 import re as _re_bm
@@ -48,7 +22,6 @@ def is_back_matter(heading) -> bool:
     if not h:
         return False
     return bool(BACK_MATTER_HEADINGS.search(h))
-
 
 NON_IMRAD_HEADINGS = re.compile(
     r"\b(?:"
@@ -104,52 +77,38 @@ def _mark_non_imrad(section: dict, reason: str = "non_imrad_heading_excluded") -
     section["imrad_confidence"] = 0.0
     section["imrad_reason"] = reason
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# v6: Characterization/technique heading detection
-# These headings appear in results sections of chemistry/materials papers.
-# They describe WHAT was measured (results), not HOW the experiment was set up.
-# ─────────────────────────────────────────────────────────────────────────────
-
 CHARACTERIZATION_HEADINGS = re.compile(
     r"\b(?:"
-    # Spectroscopy/diffraction techniques as section headings
+
     r"XRD|WAXS|SAXS|WAXD|XPS|FTIR|NMR|UV[\s-]?vis|Raman|"
     r"(?:FE[\s-]?)?SEM|TEM|AFM|EDX|EDS|EELS|"
-    # Electrochemistry result headings
+
     r"cyclic\s+voltammetr|differential\s+pulse\s+voltammetr|"
     r"electrochemical\s+impedance|EIS\b|DPV\b|CV\b|"
     r"chronoamperometr|potentiometr|"
-    # Thermal analysis
+
     r"DSC|TGA|DTA|"
-    # Material characterization as results
+
     r"structural\s+and\s+morphological|morphological\s+characterization|"
     r"surface\s+(?:topograph|morpholog)|"
-    # Sensor/device testing (results, not methods)
+
     r"sensing\s+mechanism|interference.*(?:selectivity|ions?)|"
     r"selectivity\s+(?:test|stud)|"
     r"reproducibility\s+and\s+stability|stability\s+(?:test|of)|"
     r"real\s+(?:water|sample)\s+(?:analysis|application|test)|"
     r"practical\s+implication|"
-    # Performance characterization
+
     r"material\s+characterization\s+of\b"
     r")\b",
     re.IGNORECASE,
 )
 
-
 def is_characterization_heading(heading: str | None) -> bool:
-    """True if heading describes a characterization technique typically found
-    in results/discussion sections, not methods."""
+
     h = normalize_heading(heading)
     if not h:
         return False
     return bool(CHARACTERIZATION_HEADINGS.search(h))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Code-block detection (unchanged from v5)
-# ─────────────────────────────────────────────────────────────────────────────
 
 _CODE_LINE_PATTERNS = [
     re.compile(r"^\s*#"),
@@ -158,7 +117,6 @@ _CODE_LINE_PATTERNS = [
     re.compile(r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*[^=]"),
     re.compile(r"[;{}]\s*$"),
 ]
-
 
 def is_code_block(text: str) -> bool:
     if not text:
@@ -173,7 +131,6 @@ def is_code_block(text: str) -> bool:
                 code_hits += 1
                 break
     return (code_hits / len(lines)) >= 0.5
-
 
 PROPAGATING_CATEGORIES = {"methods", "results", "discussion"}
 
@@ -191,18 +148,16 @@ TRAILING_PUNCT = re.compile(r"[\s:;.\-–—]+$")
 
 _MATH_HEADING_RE = re.compile(r"[=∫∑∏√λσψ∂ημνκΩ]|\b(?:dα|dmu|dx|dt)\b|[+*/^]", re.IGNORECASE)
 
-
 def looks_like_equation_heading(heading: str | None) -> bool:
     h = str(heading or "").strip()
     if not h:
         return False
-    # Real biomedical/statistical headings may contain "+" (e.g., "N+ rate").
+
     if re.search(r"\bn\s*\+\s*rate\b", h, re.IGNORECASE):
         return False
     if _MATH_HEADING_RE.search(h) and len(re.findall(r"[A-Za-z]{3,}", h)) < 5:
         return True
     return False
-
 
 def normalize_heading(heading: str | None) -> str:
     if not heading:
@@ -215,14 +170,11 @@ def normalize_heading(heading: str | None) -> str:
     h = TRAILING_PUNCT.sub("", h)
     return h.lower().strip()
 
-
 def category_propagates(category: str | None) -> bool:
     return category in PROPAGATING_CATEGORIES
 
-
 def _match_any(text: str, patterns: list[str]) -> bool:
     return any(re.search(p, text, re.IGNORECASE) for p in patterns)
-
 
 EXACT_PATTERNS = {
     "introduction": [
@@ -253,7 +205,6 @@ EXACT_PATTERNS = {
         r"^summary$",
     ],
 }
-
 
 SYNONYM_PATTERNS = {
     "introduction": [
@@ -323,7 +274,7 @@ SYNONYM_PATTERNS = {
         r"\bthreats?\s+and\s+adversarial\s+model\b",
         r"\bsecurity\s+requirements\b",
         r"\bcharacterization\b",
-        # v6: preparation-specific method headings
+
         r"\bpreparation of\b.*\bsensor\b",
         r"\bpreparation of\b.*\belectrode\b",
         r"\bpreparation of\b.*\bcomposite\b",
@@ -363,9 +314,9 @@ SYNONYM_PATTERNS = {
         r"\bcost\b.*\bperformance\b",
         r"\bclassification\s+capabilities\b",
         r"\baccuracy\b.*\banalysis\b",
-        # v6: results and discussion combined
+
         r"\bresults?\s+and\s+discussions?\b",
-        # v6: characterization/testing results
+
         r"\bmaterial\s+characterization\b",
         r"\binterface\s+performance\b",
         r"\bsensing\s+mechanism\b",
@@ -376,7 +327,7 @@ SYNONYM_PATTERNS = {
         r"\bpractical\s+implication\b",
         r"\breal\s+water\s+sample\b",
         r"\breal\s+sample\s+analysis\b",
-        # v6: technique headings that ARE results
+
         r"\bcyclic\s+voltammetr\b",
         r"\bdifferential\s+pulse\s+voltammetr\b",
         r"\belectrochemical\s+impedance\b",
@@ -409,12 +360,11 @@ SYNONYM_PATTERNS = {
         r"\bsummary and conclusions?\b",
         r"\bconcluding remarks\b",
         r"\boutlook\b",
-        # v6: discussion + implications + limitations combined
+
         r"\bdiscussion.*implications.*limitations\b",
         r"\bimplications.*limitations\b",
     ],
 }
-
 
 COMBINED_PATTERNS = [
     (
@@ -432,7 +382,6 @@ COMBINED_PATTERNS = [
         0.80,
     ),
 ]
-
 
 INTRO_CONTENT = [
     r"\bwe (propose|present|introduce|investigate|study|examine)\b",
@@ -514,14 +463,12 @@ DISCUSSION_CONTENT = [
     r"\bconsistent with\b",
 ]
 
-
 CONTENT_PATTERNS = {
     "introduction": INTRO_CONTENT,
     "methods": METHODS_CONTENT,
     "results": RESULTS_CONTENT,
     "discussion": DISCUSSION_CONTENT,
 }
-
 
 def _content_score(text: str, category: str) -> float:
     if not text:
@@ -532,7 +479,6 @@ def _content_score(text: str, category: str) -> float:
         raw += len(re.findall(pat, text, re.IGNORECASE))
     length_factor = max(1.0, len(text) / 1500.0)
     return raw / length_factor
-
 
 def classify_imrad_detailed(heading: str | None) -> dict:
     h = normalize_heading(heading)
@@ -595,9 +541,6 @@ def classify_imrad_detailed(heading: str | None) -> dict:
             "reason": "evaluation_setup",
         }
 
-    # v6: characterization headings → results (before general synonym match,
-    # so "XRD" or "Cyclic voltammetry" gets results, not methods via the
-    # generic "characterization" synonym).
     if is_characterization_heading(h):
         return {
             "label": "results",
@@ -625,14 +568,11 @@ def classify_imrad_detailed(heading: str | None) -> dict:
 
     return empty
 
-
 def classify_imrad(heading: str | None) -> str | None:
     return classify_imrad_detailed(heading).get("label")
 
-
 def _section_text(section: dict) -> str:
     return section.get("text_no_tables") or section.get("text") or ""
-
 
 def _assign_label(
     section: dict,
@@ -670,7 +610,6 @@ def _assign_label(
     section["imrad_reason"] = reason
     return True
 
-
 def _add_secondary(section: dict, secondary_label: str, source: str, confidence: float, reason: str) -> None:
     if not secondary_label:
         return
@@ -679,13 +618,11 @@ def _add_secondary(section: dict, secondary_label: str, source: str, confidence:
     section["imrad_secondary_confidence"] = round(float(confidence), 3)
     section["imrad_secondary_reason"] = reason
 
-
 def _first_index(sections: list[dict], label: str) -> int | None:
     for i, s in enumerate(sections):
         if s.get("imrad") == label or s.get("imrad_secondary") == label:
             return i
     return None
-
 
 def _missing_categories(sections: list[dict]) -> set[str]:
     found = set()
@@ -697,7 +634,6 @@ def _missing_categories(sections: list[dict]) -> set[str]:
         if s.get("imrad_secondary") in IMRAD_CATEGORIES:
             found.add(s["imrad_secondary"])
     return set(IMRAD_CATEGORIES) - found
-
 
 def _best_candidate_by_content(
     sections: list[dict],
@@ -733,10 +669,8 @@ def _best_candidate_by_content(
         return None, best_score
     return best_idx, best_score
 
-
 _RESULTS_BOUNDARY_RE = re.compile(r"(?:^|\n|\s)(?:3|4)\.\s*Results?\s*$", re.IGNORECASE)
 _DISCUSSION_BOUNDARY_RE = re.compile(r"(?:^|\n|\s)(?:4|5)\.\s*(?:Discussion|Conclusions?)\s*$", re.IGNORECASE)
-
 
 def _text_sets_next_boundary(section: dict) -> str | None:
     tail = (_section_text(section) or "")[-300:]
@@ -746,7 +680,6 @@ def _text_sets_next_boundary(section: dict) -> str | None:
         return "discussion"
     return None
 
-
 def _can_add_or_override_low_conf(section: dict) -> bool:
     src = section.get("imrad_source", "")
     return (
@@ -755,11 +688,8 @@ def _can_add_or_override_low_conf(section: dict) -> bool:
         or float(section.get("imrad_confidence", 0.0) or 0.0) < 0.6
     )
 
-
-
 _SECTION_MAJOR_NUM_RE = re.compile(r"^\s*(\d+)(?:\.|\s)")
 _SECTION_DECIMAL_NUM_RE = re.compile(r"^\s*(\d+)\.(\d+)")
-
 
 def _major_num(section: dict) -> int | None:
     h = section.get("heading", "") or ""
@@ -771,14 +701,8 @@ def _major_num(section: dict) -> int | None:
             return None
     return None
 
-
 def _apply_numbered_parent_inheritance(sections: list[dict]) -> int:
-    """Conservative IMRaD inheritance for numbered subsections.
 
-    If a top-level numbered section (e.g. 2 Methods) is labeled methods, then
-    2.1/2.2 subsections can inherit methods. This avoids broad propagation and
-    prevents Related Work from becoming Methods.
-    """
     parent_by_major: dict[int, str] = {}
     for s in sections:
         h = s.get("heading", "") or ""
@@ -821,7 +745,6 @@ def _apply_implicit_heading_boundaries(sections: list[dict]) -> int:
         elif s.get("imrad") in {"discussion"}:
             pending = "discussion"
     return changed
-
 
 def enrich_imrad_sections(sections: list[dict]) -> dict:
     report = {
@@ -877,17 +800,13 @@ def enrich_imrad_sections(sections: list[dict]) -> dict:
     report["fallback_classified"] += _apply_implicit_heading_boundaries(sections)
     report["fallback_classified"] += _apply_numbered_parent_inheritance(sections)
 
-    # v6: Apply propagation with depth limit.
-    # Walk sections in order. When a section has an explicit IMRaD label,
-    # reset the propagation counter. Unlabeled sections inherit from the
-    # current label, but only up to MAX_PROPAGATION_DEPTH consecutive times.
     current_propagation_label = None
     propagation_count = 0
 
     for s in sections:
         if s.get("imrad") in IMRAD_CATEGORIES:
             src = s.get("imrad_source", "")
-            # Only labels from heading classification can start propagation.
+
             if src in ("heading_exact", "heading_synonym", "combined_section",
                        "heading_characterization"):
                 if category_propagates(s["imrad"]):
@@ -898,15 +817,12 @@ def enrich_imrad_sections(sections: list[dict]) -> dict:
                     propagation_count = 0
             continue
 
-        # Section has no IMRaD label (or was set by parser but not heading).
         existing = s.get("imrad")
         if existing in IMRAD_CATEGORIES:
-            # Already labeled (e.g. from tei_parser). Check if it was
-            # from propagation in the parser (imrad_source == "existing").
+
             src = s.get("imrad_source", "")
             if src == "existing":
-                # This was propagated by tei_parser. v6: re-evaluate.
-                # If we have a characterization heading, override to results.
+
                 if is_characterization_heading(s.get("heading", "")):
                     s["imrad"] = "results"
                     s["imrad_source"] = "heading_characterization"
@@ -917,13 +833,12 @@ def enrich_imrad_sections(sections: list[dict]) -> dict:
             continue
 
         if current_propagation_label and propagation_count < MAX_PROPAGATION_DEPTH:
-            # Before propagating, check if this section's heading
-            # suggests a DIFFERENT category.
+
             heading = s.get("heading", "")
             if heading:
                 detail = classify_imrad_detailed(heading)
                 if detail["label"] and detail["label"] != current_propagation_label:
-                    # Heading suggests different category; use that instead.
+
                     _assign_label(s, detail["label"], detail["source"],
                                   detail["confidence"], detail["reason"],
                                   allow_override=True)
@@ -939,7 +854,7 @@ def enrich_imrad_sections(sections: list[dict]) -> dict:
                           allow_override=True)
             propagation_count += 1
         else:
-            # Exhausted propagation budget or no current label.
+
             current_propagation_label = None
             propagation_count = 0
 
@@ -1017,7 +932,6 @@ def enrich_imrad_sections(sections: list[dict]) -> dict:
 
     return report
 
-
 def infer_methods_from_sections(sections: list[dict]) -> dict:
     before_methods = [
         i for i, s in enumerate(sections)
@@ -1062,7 +976,6 @@ def infer_methods_from_sections(sections: list[dict]) -> dict:
 
     return report
 
-
 if __name__ == "__main__":
     tests = [
         ("Introduction", "introduction"),
@@ -1078,7 +991,7 @@ if __name__ == "__main__":
         ("Discussion", "discussion"),
         ("Conclusion", "discussion"),
         ("Acknowledgments", None),
-        # v6 tests
+
         ("XRD", "results"),
         ("Cyclic voltammetry", "results"),
         ("Differential pulse voltammetry (DPV)", "results"),

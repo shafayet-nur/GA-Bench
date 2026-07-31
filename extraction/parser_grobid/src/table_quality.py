@@ -1,11 +1,3 @@
-"""
-table_quality.py (v13)
-
-Table cleanup and quality scoring helpers.  This module is intentionally
-conservative: it preserves raw table text when possible, but flags weak table
-structure instead of silently passing it as publication-ready structured data.
-"""
-
 from __future__ import annotations
 import re
 
@@ -22,7 +14,6 @@ _HEADER_FOOTER_LINE_RE = re.compile(
 )
 _TABLE_CAPTION_RE = re.compile(r"^\s*Table\s+((?:S\s*)?\d+[A-Za-z]?|[A-Z]\.\s*\d+|[IVXLC]+)\b\.?\s*(.*)$", re.I)
 
-
 def _norm(text: str) -> str:
     text = (text or "").replace("\u00a0", " ")
     text = text.replace("−", "-").replace("–", "-").replace("—", "-")
@@ -30,9 +21,8 @@ def _norm(text: str) -> str:
     text = re.sub(r" *\n *", "\n", text)
     return text.strip()
 
-
 def is_table_mention_not_caption(line: str) -> bool:
-    """Return True for prose references like 'Table 1 shows...'"""
+
     s = _norm(line)
     m = _TABLE_CAPTION_RE.match(s)
     if not m:
@@ -43,7 +33,6 @@ def is_table_mention_not_caption(line: str) -> bool:
     if re.match(r"^(?:and|or|for|in|from|with|without|of|to)\b", rest, re.I):
         return True
     return False
-
 
 def clean_table_caption(caption: str) -> tuple[str, list[str]]:
     reasons: list[str] = []
@@ -57,7 +46,7 @@ def clean_table_caption(caption: str) -> tuple[str, list[str]]:
             reasons.append("caption_cut_at_next_block")
             break
         if i > 0 and re.match(r"^(?:The|This|These|Those|There|In|For|As|We|Our)\b", ln) and len(" ".join(kept)) > 30:
-            # likely body prose after caption
+
             reasons.append("caption_body_leakage_removed")
             break
         if re.search(r"\b(?:Eqs?\.\s*\(|Calculation indexes|Determination of the total)\b", ln, re.I):
@@ -69,7 +58,6 @@ def clean_table_caption(caption: str) -> tuple[str, list[str]]:
             break
     c = _norm("\n".join(kept))
     return c, reasons
-
 
 def clean_table_body(text: str) -> tuple[str, list[str]]:
     reasons: list[str] = []
@@ -83,7 +71,7 @@ def clean_table_body(text: str) -> tuple[str, list[str]]:
         if re.match(r"^(?:Fig(?:ure)?\.?\s+\d+|References|Declaration of competing interest|CRediT authorship|Acknowledg)", ln, re.I):
             reasons.append("cut_at_non_table_block")
             break
-        # Stop after table data if paragraph prose begins.
+
         if data_seen >= 2 and _looks_like_prose(ln):
             reasons.append("removed_trailing_prose")
             break
@@ -92,13 +80,11 @@ def clean_table_body(text: str) -> tuple[str, list[str]]:
             data_seen += 1
     return _norm("\n".join(out)), sorted(set(reasons))
 
-
 def _digit_ratio(s: str) -> float:
     s = s.strip()
     if not s:
         return 0.0
     return sum(1 for c in s if c.isdigit() or c in "%.,+-−–—/()<>±=×:") / max(1, len(s))
-
 
 def _is_data_like(line: str) -> bool:
     s = line.strip()
@@ -113,7 +99,6 @@ def _is_data_like(line: str) -> bool:
         return True
     return False
 
-
 def _looks_like_prose(line: str) -> bool:
     s = line.strip()
     if len(s) < 45 or _digit_ratio(s) >= 0.18:
@@ -121,15 +106,12 @@ def _looks_like_prose(line: str) -> bool:
     words = re.findall(r"[A-Za-z]{3,}", s)
     return len(words) >= 8 and bool(re.search(r"\b(?:is|are|was|were|has|have|had|show|shows|showed|indicates?|suggests?|observed|found)\b", s, re.I))
 
-
 def _split_rows_heuristic(text: str) -> list[list[str]]:
     lines = [ln.strip() for ln in _norm(text).splitlines() if ln.strip()]
     if len(lines) < 2:
         return []
-    # Simple reconstruction: keep one cell per line when the source is line-based.
-    # This is deliberately modest; raw text remains the authoritative table text.
-    return [[ln] for ln in lines]
 
+    return [[ln] for ln in lines]
 
 def table_quality(body: str, caption: str = "") -> tuple[float, bool, list[str], list[list[str]]]:
     body = _norm(body)

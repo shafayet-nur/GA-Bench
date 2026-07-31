@@ -1,11 +1,3 @@
-"""
-pdf_text_locator.py (v13)
-
-Utilities for locating snippets and expected tables in raw PyMuPDF page text
-and parsed sections. v13 strengthens expected-table detection so a paper no
-longer reports table_count=0 when the text clearly refers to tables.
-"""
-
 from __future__ import annotations
 import re
 from typing import Iterable
@@ -21,12 +13,10 @@ _TABLE_CAPTION_LINE_RE = re.compile(
     re.I | re.M,
 )
 
-
 def normalize_for_search(text: str) -> str:
     text = (text or "").replace("\u00a0", " ")
     text = re.sub(r"\s+", " ", text)
     return text.strip().lower()
-
 
 def normalize_table_num(num: str | None) -> str:
     if not num:
@@ -35,11 +25,9 @@ def normalize_table_num(num: str | None) -> str:
     s = s.replace(".", "") if re.match(r"^[A-Z]\.\d+", s) else s
     return s
 
-
 def table_label(num: str | None) -> str:
     n = normalize_table_num(num)
     return f"Table {n}" if n else "Table"
-
 
 def infer_page_for_text(text: str, raw_pages: list[str] | None, *, min_len: int = 16) -> int | None:
     if not text or not raw_pages:
@@ -67,7 +55,6 @@ def infer_page_for_text(text: str, raw_pages: list[str] | None, *, min_len: int 
                 return i
     return None
 
-
 def table_numbers_in_text(text: str) -> set[str]:
     nums: set[str] = set()
     text = text or ""
@@ -87,7 +74,6 @@ def table_numbers_in_text(text: str) -> set[str]:
         nums.add(str(int(m.group("b"))))
     return nums
 
-
 def table_caption_numbers_in_text(text: str) -> set[str]:
     nums: set[str] = set()
     for m in _TABLE_CAPTION_LINE_RE.finditer(text or ""):
@@ -96,14 +82,8 @@ def table_caption_numbers_in_text(text: str) -> set[str]:
             nums.add(n)
     return nums
 
-
 def expected_table_numbers(raw_pages: list[str] | None = None, sections: list[dict] | None = None, tei_text: str | None = None) -> set[str]:
-    """Return expected table numbers from captions and references.
 
-    Mentions are included because downstream selection needs truthfulness: it is
-    safer to mark a table as unrecovered/needs_review than to falsely claim no
-    tables exist.
-    """
     nums: set[str] = set()
     for page in raw_pages or []:
         nums.update(table_numbers_in_text(page))
@@ -114,12 +94,11 @@ def expected_table_numbers(raw_pages: list[str] | None = None, sections: list[di
         nums.update(table_numbers_in_text(tei_text))
     return nums
 
-
 def find_table_caption_page(raw_pages: list[str] | None, num: str) -> int | None:
     n = normalize_table_num(num)
     if not raw_pages or not n:
         return None
-    # caption-like lines first
+
     cap_pat = re.compile(rf"^\s*(?:Supplementary\s+)?Table\s+{re.escape(n)}\b", re.I | re.M)
     ref_pat = re.compile(rf"\bTable\s+{re.escape(n)}\b", re.I)
     for i, page in enumerate(raw_pages, start=1):
@@ -129,7 +108,6 @@ def find_table_caption_page(raw_pages: list[str] | None, num: str) -> int | None
         if ref_pat.search(page or ""):
             return i
     return None
-
 
 def table_sort_value(num: str | None):
     if num is None:

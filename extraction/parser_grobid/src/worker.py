@@ -1,19 +1,3 @@
-"""
-Per-PDF worker (v8).
-
-v7.2 changes vs v7:
-    1. REQUIRED_OUTPUTS includes both IMRaD files (skip-guard cannot leave a
-       partial/stale set).
-    2. pdffigures2 table-type detections are no longer discarded; they are
-       passed to write_paper_outputs as `table_detections` so image-based
-       tables can be OCR'd by region.
-    3. DEFAULT_JAR_PATH points at the grobid_parser tree.
-
-Entry points unchanged:
-    process_one_pdf(pdf_path, grobid_url, ...) -> result dict
-    worker_loop(grobid_url, work_queue_path, node_id, worker_id, ...) -> None
-"""
-
 from __future__ import annotations
 import argparse
 import os
@@ -47,7 +31,6 @@ from grobid_figure_fallback import (
 )
 from output_writer import write_paper_outputs
 
-
 DEFAULT_JAR_PATH = "./grobid_parser/bin/pdffigures2.jar"
 DEFAULT_DATASET_ROOT = "./dataset_10k"
 
@@ -73,10 +56,8 @@ PDFFIGURES2_TIMEOUT_S = 300
 
 TEI_FIGURE_FALLBACK_THRESHOLD = 3
 
-
 def _is_elsevier(publisher: str) -> bool:
     return "elsevier" in (publisher or "").strip().lower()
-
 
 def parse_doi_from_folder(doi_folder_name: str) -> str:
     parts = doi_folder_name.split("_")
@@ -89,9 +70,8 @@ def parse_doi_from_folder(doi_folder_name: str) -> str:
         return f"{prefix}.{registrant}"
     return doi_folder_name
 
-
 def _read_sidecar_metadata(doi_folder: Path) -> dict:
-    """Read <doi>_Metadata.json when available, without making it required."""
+
     try:
         meta_files = sorted(doi_folder.glob("*_Metadata.json"))
         if not meta_files:
@@ -102,14 +82,8 @@ def _read_sidecar_metadata(doi_folder: Path) -> dict:
     except Exception:
         return {}
 
-
 def parse_path_metadata(pdf_path: Path) -> dict:
-    """Dataset layout for this update:
 
-        ./
-
-    There are no publisher or journal folders in this dataset.
-    """
     doi_folder = pdf_path.parent
     sidecar = _read_sidecar_metadata(doi_folder)
     return {
@@ -119,12 +93,11 @@ def parse_path_metadata(pdf_path: Path) -> dict:
         "journal": sidecar.get("journal") or sidecar.get("journal_name") or "",
     }
 
-
 def output_already_complete(doi_folder: Path) -> bool:
     output_dir = doi_folder / OUTPUT_FOLDER_NAME
     if not output_dir.is_dir():
         return False
-    # Outputs are DOI-prefixed in v9, e.g. 10_1016_x_fulltext.json.
+
     required_suffixes = [
         "fulltext.json", "fulltext_imrad.json", "figures.json",
         "tables.json", "equations.json", "quality_report.json", "tei.xml",
@@ -139,7 +112,6 @@ def output_already_complete(doi_folder: Path) -> bool:
     if not (output_dir / "figures").exists():
         return False
     return True
-
 
 def call_grobid(pdf_path: Path, grobid_url: str, output_tei_path: Path):
     endpoint = grobid_url.rstrip("/") + "/api/processFulltextDocument"
@@ -172,7 +144,6 @@ def call_grobid(pdf_path: Path, grobid_url: str, output_tei_path: Path):
     except Exception as e:
         return False, f"GROBID call failed: {type(e).__name__}: {e}"
 
-
 def _assemble_body_text(sections: list[dict]) -> str:
     parts = []
     for s in sections:
@@ -180,7 +151,6 @@ def _assemble_body_text(sections: list[dict]) -> str:
         if body:
             parts.append(body)
     return "\n\n".join(parts)
-
 
 def process_one_pdf(pdf_path, grobid_url, jar_path=DEFAULT_JAR_PATH, scratch_root=None) -> dict:
     start_time = time.time()
@@ -217,7 +187,6 @@ def process_one_pdf(pdf_path, grobid_url, jar_path=DEFAULT_JAR_PATH, scratch_roo
     result["publisher"] = meta["publisher"]
     result["journal"] = meta["journal"]
     doi_folder: Path = meta["doi_folder"]
-
 
     if output_already_complete(doi_folder):
         result["success"] = True
@@ -359,7 +328,6 @@ def process_one_pdf(pdf_path, grobid_url, jar_path=DEFAULT_JAR_PATH, scratch_roo
         except Exception:
             pass
 
-        # v7.2: also bbox-recover the TABLE detections so OCR crops are accurate.
         try:
             crosscheck_bbox_with_pymupdf(enriched_tables_initial, pdf_path, pf_figures_dir)
         except Exception:
@@ -415,7 +383,6 @@ def process_one_pdf(pdf_path, grobid_url, jar_path=DEFAULT_JAR_PATH, scratch_roo
             pass
         result["elapsed_seconds"] = time.time() - start_time
 
-
 def format_log_line(result: dict, node_id: str, worker_id: int) -> str:
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     error_oneline = (result.get("error") or "").replace("\n", " ").replace("\t", " ")[:300]
@@ -436,7 +403,6 @@ def format_log_line(result: dict, node_id: str, worker_id: int) -> str:
         f"refs={result.get('n_references', 0)}",
         result.get("stage_failed") or "", error_oneline,
     ])
-
 
 def worker_loop(grobid_url, work_queue_path, node_id, worker_id,
                 jar_path=DEFAULT_JAR_PATH, scratch_root=None, max_papers=None):
@@ -510,7 +476,6 @@ def worker_loop(grobid_url, work_queue_path, node_id, worker_id,
 
         processed += 1
 
-
 def _cli_test_single(args):
     result = process_one_pdf(
         pdf_path=args.pdf, grobid_url=args.grobid_url,
@@ -529,7 +494,6 @@ def _cli_test_single(args):
             print(f"  {k}: {v}")
     sys.exit(0 if result["success"] else 1)
 
-
 def _cli_loop(args):
     node_id = args.node_id or socket.gethostname()
     worker_loop(
@@ -537,7 +501,6 @@ def _cli_loop(args):
         node_id=node_id, worker_id=args.worker_id, jar_path=args.jar_path,
         scratch_root=args.scratch_root, max_papers=args.max_papers,
     )
-
 
 def main():
     parser = argparse.ArgumentParser(description="PDF parser worker (v8)")
@@ -562,7 +525,6 @@ def main():
 
     args = parser.parse_args()
     args.func(args)
-
 
 if __name__ == "__main__":
     main()

@@ -1,57 +1,3 @@
-"""
-Coordinator and work-queue management for the parallel PDF extraction job.
-
-v3 PATCH: file-based queue (replaces SQLite, which corrupts on
-Lustre/NFS under heavy concurrent writes from 64+ workers across nodes).
-
-v7 PATCH:
-    - OUTPUT_FOLDER_NAME -> "extracted".
-    - This update expects DOI folders directly under the dataset root.
-
-Queue layout on Lustre:
-    <queue_root>/
-        pending/        # one tiny file per PDF, named by hash of pdf_path
-        in_progress/    # claimed but not finished
-        done/           # completed successfully
-        failed/         # crashed during processing
-        index.json      # map: hash -> {pdf_path, publisher, journal, doi}
-        results/        # per-paper JSON result blobs (small)
-        stats.json      # rolling status counts (rewritten by monitor)
-        live.log        # human-readable activity log (rewritten by monitor)
-
-How claiming works (NFS-safe, atomic):
-    Each "task" is a tiny file named <hash>.json in the pending/ directory.
-    To claim a task, a worker calls os.rename(pending/<hash>.json,
-    in_progress/<hash>.json). POSIX (and Linux NFS) guarantees rename()
-    is atomic for files within the same filesystem: exactly one caller
-    succeeds, every other caller gets ENOENT and retries another task.
-
-    No locks. No SQLite. No coordination overhead beyond a directory listing.
-
-    On crash/orphan: the in_progress/ file is still there; reset_orphans
-    moves it back to pending/.
-
-Two roles in one module:
-  1. Helpers used BY worker processes (running on compute nodes):
-        claim_next_paper(queue_root, claimed_by) -> dict | None
-        mark_paper_done(queue_root, pdf_path, result)
-        mark_paper_failed(queue_root, pdf_path, result)
-  2. The COORDINATOR entry point (run once, on the head node):
-        build_or_reopen_queue(queue_root, dataset_root)
-        reset_orphans(queue_root)             — recover from crashes
-        run_coordinator(...)                  — full run: spawn nodes + monitor
-
-This module is callable as a CLI for the coordinator role:
-    python3 coordinator.py build         --dataset-root <path> --db <queue_root>
-    python3 coordinator.py reset-orphans --db <queue_root>
-    python3 coordinator.py status        --db <queue_root>
-    python3 coordinator.py write-master  --db <queue_root> --out-dir <path>
-    python3 coordinator.py monitor       --db <queue_root> --log <path> --stats-json <path>
-
-Note: the CLI flag is named --db for back-compat with the existing PBS script;
-it now points to the queue *directory* root, not a SQLite file path.
-"""
-
 from __future__ import annotations
 import argparse
 import csv
@@ -66,11 +12,6 @@ import time
 import datetime
 from pathlib import Path
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Queue layout helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
 PENDING_DIR = "pending"
 IN_PROGRESS_DIR = "in_progress"
 DONE_DIR = "done"
@@ -80,59 +21,42 @@ RESULTS_DIR = "results"
 OUTPUT_FOLDER_NAME = "extracted"
 ALL_STATE_DIRS = [PENDING_DIR, IN_PROGRESS_DIR, DONE_DIR, FAILED_DIR, RESULTS_DIR]
 
-# Throttle for the expensive done/-scan used by the live monitor.
 IMRAD_SCAN_THROTTLE_S = 60
 _IMRAD_SCAN_CACHE: dict = {}
 
-
 def _is_elsevier(publisher: str) -> bool:
-    """Legacy helper kept for compatibility; the Paper 1 dataset is already filtered."""
+
     return "elsevier" in (publisher or "").strip().lower()
 
-
 def _ensure_layout(queue_root: Path) -> None:
-    """Create all queue subdirectories if missing."""
+
     queue_root.mkdir(parents=True, exist_ok=True)
     for sub in ALL_STATE_DIRS:
         (queue_root / sub).mkdir(parents=True, exist_ok=True)
 
-
 def _hash_pdf_path(pdf_path: str) -> str:
-    """Stable short hash used as a task filename. Sha1 is plenty for uniqueness."""
-    return hashlib.sha1(pdf_path.encode("utf-8")).hexdigest()
 
+    return hashlib.sha1(pdf_path.encode("utf-8")).hexdigest()
 
 def _task_filename(pdf_path: str) -> str:
     return _hash_pdf_path(pdf_path) + ".json"
 
-
 def _atomic_write_json(target: Path, payload: dict) -> None:
-    """
-    Write JSON atomically: write to a temp file, then rename. Avoids partial
-    files if a worker is killed mid-write.
-    """
+
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + f".tmp{os.getpid()}_{random.randint(0, 1<<30)}")
     tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     os.replace(str(tmp), str(target))
 
-
 def _read_json(path: Path) -> dict | None:
-    """Read a JSON file; return None on any IO/parse error (file may be gone)."""
+
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Worker-facing helpers (imported by worker.py)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def claim_next_paper(queue_root: str | Path, claimed_by: str) -> dict | None:
-    """
-    Atomically claim the next pending paper.
-    """
+
     queue_root = Path(queue_root)
     pending = queue_root / PENDING_DIR
     in_progress = queue_root / IN_PROGRESS_DIR
@@ -196,14 +120,13 @@ def claim_next_paper(queue_root: str | Path, claimed_by: str) -> dict | None:
 
     return None
 
-
 def _move_to_outcome(
     queue_root: Path,
     pdf_path: str,
     outcome_dir: str,
     result_data: dict,
 ) -> None:
-    """Move a task from in_progress/ to done/ or failed/, merging the result."""
+
     task_name = _task_filename(pdf_path)
 
     src = queue_root / IN_PROGRESS_DIR / task_name
@@ -231,9 +154,8 @@ def _move_to_outcome(
     except OSError:
         pass
 
-
 def mark_paper_done(queue_root: str | Path, pdf_path: str, result: dict) -> None:
-    """Record a successful processing outcome."""
+
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     payload = {
         "pdf_path": pdf_path,
@@ -260,9 +182,8 @@ def mark_paper_done(queue_root: str | Path, pdf_path: str, result: dict) -> None
     }
     _move_to_outcome(Path(queue_root), pdf_path, DONE_DIR, payload)
 
-
 def mark_paper_failed(queue_root: str | Path, pdf_path: str, result: dict) -> None:
-    """Record a failed processing outcome."""
+
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     err = (result.get("error") or "")[:2000]
     payload = {
@@ -284,11 +205,6 @@ def mark_paper_failed(queue_root: str | Path, pdf_path: str, result: dict) -> No
     }
     _move_to_outcome(Path(queue_root), pdf_path, FAILED_DIR, payload)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Queue building (coordinator only)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _parse_doi_from_folder(doi_folder_name: str) -> str:
     parts = doi_folder_name.split("_")
     if len(parts) >= 2:
@@ -300,7 +216,6 @@ def _parse_doi_from_folder(doi_folder_name: str) -> str:
         return f"{prefix}.{registrant}"
     return doi_folder_name
 
-
 def _read_sidecar_metadata(doi_folder: Path) -> dict:
     try:
         meta_files = sorted(doi_folder.glob("*_Metadata.json"))
@@ -310,13 +225,8 @@ def _read_sidecar_metadata(doi_folder: Path) -> dict:
     except Exception:
         return {}
 
-
 def _parse_metadata_from_path(pdf_path: Path, dataset_root: Path) -> dict:
-    """Expected layout: <dataset_root>/<doi_folder>/<doi>.pdf.
 
-    There are no publisher or journal directories in this dataset.
-    Publisher/journal are read from <doi>_Metadata.json when available.
-    """
     try:
         rel = pdf_path.relative_to(dataset_root)
     except ValueError:
@@ -332,21 +242,12 @@ def _parse_metadata_from_path(pdf_path: Path, dataset_root: Path) -> dict:
         "doi": sidecar.get("doi") or _parse_doi_from_folder(doi_folder),
     }
 
-
 def build_or_reopen_queue(
     queue_root: str | Path,
     dataset_root: str | Path,
     verbose: bool = True,
 ) -> dict:
-    """
-    Walk the dataset root for *.pdf files (ELSEVIER ONLY) and populate the queue
-    with one tiny JSON file per PDF in pending/.
 
-    Idempotent: if a task file already exists in ANY state directory
-    (pending/in_progress/done/failed), we skip it.
-
-    Returns stats incl. {inserted, skipped_existing, skipped_non_dataset_layout, ...}
-    """
     queue_root = Path(queue_root)
     dataset_root = Path(dataset_root)
     if not dataset_root.is_dir():
@@ -362,7 +263,6 @@ def build_or_reopen_queue(
     if verbose:
         print(f"  found {len(pdfs)} candidate PDFs", flush=True)
 
-    # Build a set of task filenames that already exist anywhere in the queue.
     existing: set[str] = set()
     for sub in (PENDING_DIR, IN_PROGRESS_DIR, DONE_DIR, FAILED_DIR):
         try:
@@ -384,7 +284,6 @@ def build_or_reopen_queue(
             continue
 
         meta = _parse_metadata_from_path(pdf, dataset_root)
-
 
         payload = {
             "pdf_path": pdf_str,
@@ -412,21 +311,8 @@ def build_or_reopen_queue(
         print(f"  queue status: {stats}", flush=True)
     return stats
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Resume / orphan recovery
-# ─────────────────────────────────────────────────────────────────────────────
-
 def reset_orphans(queue_root: str | Path, verbose: bool = True) -> int:
-    """
-    Move any task files in in_progress/ back to pending/. These are leftovers
-    from a previous crashed run.
 
-    Also best-effort cleans up partial outputs in the dataset (the .tmp
-    folders output_writer leaves behind on crash).
-
-    Returns count of rows reset.
-    """
     queue_root = Path(queue_root)
     src_dir = queue_root / IN_PROGRESS_DIR
     dst_dir = queue_root / PENDING_DIR
@@ -454,7 +340,6 @@ def reset_orphans(queue_root: str | Path, verbose: bool = True) -> int:
         print(f"Found {len(orphan_names)} orphans; moving back to pending/...",
               flush=True)
 
-    # Best-effort cleanup of partial outputs (.tmp folders from crashed writes).
     for name in orphan_names:
         payload = _read_json(src_dir / name)
         if payload is None:
@@ -494,13 +379,8 @@ def reset_orphans(queue_root: str | Path, verbose: bool = True) -> int:
         print(f"  reset {reset_count} tasks back to pending", flush=True)
     return reset_count
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Status reporting
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _count_files(path: Path) -> int:
-    """Count *.json files in a directory. Returns 0 if dir is missing."""
+
     try:
         n = 0
         with os.scandir(path) as it:
@@ -511,9 +391,8 @@ def _count_files(path: Path) -> int:
     except FileNotFoundError:
         return 0
 
-
 def get_queue_status(queue_root: str | Path) -> dict:
-    """Return current counts of papers by status."""
+
     queue_root = Path(queue_root)
     pending = _count_files(queue_root / PENDING_DIR)
     in_progress = _count_files(queue_root / IN_PROGRESS_DIR)
@@ -549,9 +428,8 @@ def get_queue_status(queue_root: str | Path) -> dict:
 
     return out
 
-
 def _scan_done_imrad(queue_root: Path) -> int:
-    """Count done/ tasks where imrad_complete=True. Linear-scan."""
+
     n = 0
     done = queue_root / DONE_DIR
     try:
@@ -566,9 +444,8 @@ def _scan_done_imrad(queue_root: Path) -> int:
         pass
     return n
 
-
 def _scan_by_publisher(queue_root: Path) -> dict:
-    """Aggregate counts by publisher across all state directories."""
+
     by_pub: dict[str, dict[str, int]] = {}
 
     for sub, key in [
@@ -600,9 +477,8 @@ def _scan_by_publisher(queue_root: Path) -> dict:
 
     return by_pub
 
-
 def get_failure_breakdown(queue_root: str | Path, limit: int = 10) -> dict:
-    """Return counts of failures grouped by stage_failed and recent error samples."""
+
     queue_root = Path(queue_root)
     by_stage: dict[str, int] = {}
     samples: list[dict] = []
@@ -642,13 +518,8 @@ def get_failure_breakdown(queue_root: str | Path, limit: int = 10) -> dict:
 
     return {"by_stage": by_stage, "recent_errors": samples}
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Live stats writer (used by the monitor thread)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def render_stats_block(queue_root: str | Path) -> str:
-    """Build the human-readable stats block written to extraction_live.log."""
+
     s = get_queue_status(queue_root)
     f = get_failure_breakdown(queue_root, limit=0)
     done = s["done"]
@@ -678,8 +549,7 @@ def render_stats_block(queue_root: str | Path) -> str:
         lines.append(" Of successful:")
         lines.append(f"   Full IMRaD:      {s['imrad_complete_count']:>7d}  ({imrad_pct:5.2f}%)")
         lines.append(f"   Partial IMRaD:   {done - s['imrad_complete_count']:>7d}")
-    # Keep live PBS logs short. Full publisher details remain available in
-    # extraction_stats.json under payload["queue"]["by_publisher"].
+
     publisher_group_count = len(s.get("by_publisher", {}))
     if publisher_group_count:
         lines.append("")
@@ -692,9 +562,8 @@ def render_stats_block(queue_root: str | Path) -> str:
     lines.append("=" * 75)
     return "\n".join(lines)
 
-
 def write_stats_files(queue_root: str | Path, log_path: Path, stats_json_path: Path) -> None:
-    """Append a stats block to extraction_live.log and rewrite extraction_stats.json."""
+
     log_path.parent.mkdir(parents=True, exist_ok=True)
     stats_json_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -711,16 +580,8 @@ def write_stats_files(queue_root: str | Path, log_path: Path, stats_json_path: P
     }
     _atomic_write_json(stats_json_path, payload)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Master file writer
-# ─────────────────────────────────────────────────────────────────────────────
-
 def write_master_files(queue_root: str | Path, out_dir: str | Path) -> dict:
-    """
-    Read every result blob (done/failed) and write
-    extraction_master.json + extraction_master.csv.
-    """
+
     queue_root = Path(queue_root)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -800,11 +661,6 @@ def write_master_files(queue_root: str | Path, out_dir: str | Path) -> dict:
         "row_count": len(rows),
     }
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Monitor loop
-# ─────────────────────────────────────────────────────────────────────────────
-
 def monitor_loop(
     queue_root: str | Path,
     log_path: str | Path,
@@ -813,7 +669,7 @@ def monitor_loop(
     stats_every_n_papers: int = 10,
     stall_warn_minutes: int = 15,
 ) -> None:
-    """Run the live-monitoring loop until the queue is empty."""
+
     queue_root = Path(queue_root)
     log_path = Path(log_path)
     stats_json_path = Path(stats_json_path)
@@ -877,30 +733,21 @@ def monitor_loop(
 
         time.sleep(poll_interval_s)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CLI
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _cli_build(args):
     stats = build_or_reopen_queue(args.db, args.dataset_root, verbose=True)
     print(json.dumps(stats, indent=2))
-
 
 def _cli_reset_orphans(args):
     n = reset_orphans(args.db, verbose=True)
     print(f"reset {n} orphan tasks")
 
-
 def _cli_status(args):
     s = get_queue_status(args.db)
     print(json.dumps(s, indent=2))
 
-
 def _cli_write_master(args):
     out = write_master_files(args.db, args.out_dir)
     print(json.dumps(out, indent=2))
-
 
 def _cli_monitor(args):
     monitor_loop(
@@ -910,7 +757,6 @@ def _cli_monitor(args):
         poll_interval_s=args.poll_interval,
         stats_every_n_papers=args.stats_every,
     )
-
 
 def main():
     parser = argparse.ArgumentParser(description="Coordinator / file-based work-queue manager (v7)")
@@ -944,7 +790,6 @@ def main():
 
     args = parser.parse_args()
     args.func(args)
-
 
 if __name__ == "__main__":
     main()

@@ -1,17 +1,3 @@
-"""
-Per-paper output writer (v8).
-
-v8 changes:
-  1. One clean IMRaD file: fulltext_imrad.json.
-  2. Table content is written to tables.json only; body text keeps placeholders
-     such as [Table 2 here]. No fulltext_imrad_with_tables.json is produced.
-  3. Figure/table captions are removed from body text when detected and replaced
-     with placeholders. Captions remain in figures.json/tables.json.
-  4. Equation placeholders are resolved into readable in-text blocks:
-     [Equation N: ...].
-  5. Figure JSON keeps assignment evidence, possible sections, and mentions.
-"""
-
 from __future__ import annotations
 import json
 import shutil
@@ -26,13 +12,10 @@ from label_utils import parse_label, asset_id
 from quality_report import build_quality_report
 import ocr_engine
 
-
 IMRAD_CATEGORIES = ["introduction", "methods", "results", "discussion"]
-
 
 def _now_utc_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
 def _read_raw_pages(pdf_path) -> tuple[list[str], str | None]:
     if not pdf_path:
@@ -48,7 +31,6 @@ def _read_raw_pages(pdf_path) -> tuple[list[str], str | None]:
     except Exception as e:
         return [], f"{type(e).__name__}: {e}"
 
-
 def _caption_is_incomplete(caption: str) -> bool:
     c = clean_text_artifacts(caption or "").strip()
     if not c:
@@ -59,8 +41,6 @@ def _caption_is_incomplete(caption: str) -> bool:
         or tail.endswith(("see", "for details", "for details see", "shown in", "described in"))
         or re.search(r"(?:for details,? see|see)\s*$", c, re.IGNORECASE)
     )
-
-
 
 _CAPTION_HARD_STOP_RE = re.compile(
     r"^\s*(?:"
@@ -91,24 +71,18 @@ _CAPTION_BODY_START_RE = re.compile(
     re.IGNORECASE,
 )
 
-
 def _safe_sentence_cut(text: str, max_chars: int = 650) -> str:
     t = clean_text_artifacts(text or "")
     if len(t) <= max_chars:
         return t
-    # Prefer the last sentence ending before the cap, but keep enough text.
+
     cut = max(t.rfind(". ", 0, max_chars), t.rfind("); ", 0, max_chars), t.rfind("] ", 0, max_chars))
     if cut < 80:
         cut = max_chars
     return t[:cut + 1].rstrip(" ,;:")
 
-
 def _sanitize_figure_caption(caption: str, label: str | None = None) -> str:
-    """Prevent figure captions from absorbing body text/back matter/code.
 
-    This is intentionally conservative: a slightly shorter caption is much
-    safer than a caption containing entire paragraphs, CRediT sections, or code.
-    """
     c = clean_text_artifacts(caption or "")
     if not c:
         return ""
@@ -130,7 +104,6 @@ def _sanitize_figure_caption(caption: str, label: str | None = None) -> str:
 
     c = clean_text_artifacts("\n".join(kept))
 
-    # Hard-stop markers that may occur mid-line after PyMuPDF normalization.
     marker_pat = re.compile(
         r"\b(?:CRediT authorship|Declaration of competing interest|Acknowledg(?:e)?ments?|"
         r"Appendix\s+[A-Z]|References\b|usertype\b|protocol\s+\w+\(|send_\d+)\b",
@@ -140,7 +113,6 @@ def _sanitize_figure_caption(caption: str, label: str | None = None) -> str:
     if m and m.start() > 25:
         c = c[:m.start()].rstrip(" ,;:")
 
-    # If caption clearly contains an explanatory body paragraph, cut before it.
     body_pat = re.compile(
         r"\s+(?:In the|For the|The scheme|The first|Then|Next|After executing|As already mentioned|Please note)\b",
         re.IGNORECASE,
@@ -150,7 +122,6 @@ def _sanitize_figure_caption(caption: str, label: str | None = None) -> str:
         c = c[:m.start()].rstrip(" ,;:")
 
     return _safe_sentence_cut(c, 650)
-
 
 def _caption_quality(caption: str) -> tuple[str, list[str]]:
     c = clean_text_artifacts(caption or "")
@@ -166,9 +137,8 @@ def _caption_quality(caption: str) -> tuple[str, list[str]]:
         reasons.append("possible_body_text_leakage")
     return ("suspicious" if reasons else "good"), reasons
 
-
 def _prefixed_name(doi: str, suffix: str) -> str:
-    """Filename compatible with DOI-folder naming: 10.1016/x -> 10_1016_x_suffix."""
+
     safe = re.sub(r"[^A-Za-z0-9]+", "_", doi or "paper").strip("_")
     return f"{safe}_{suffix}"
 
@@ -180,9 +150,8 @@ def _figure_label_patterns(label: str) -> list[re.Pattern]:
     pats = []
     for num in nums[:1]:
         num_flex = re.escape(num).replace(r"\.", r"\.?")
-        pats.append(re.compile(rf"(?:^|\n)\s*(?:Fig\.?|Figure)\s*{num_flex}\b\.?(.*?)(?=(?:\n\s*(?:Fig\.?|Figure|Table)\s+[A-Za-z]?\.?\d+\b)|(?:\n\s*\d+(?:\.\d+)*\.?\s+[A-Z])|(?:\n\s*[A-Z]\.?.{{0,80}}et al\.?)|\Z)", re.IGNORECASE | re.DOTALL))
+        pats.append(re.compile(rf"(?:^|\n)\s*(?:Fig\.?|Figure)\s*{num_flex}\b\.?(.*?)(?=(?:\n\s*(?:Fig\.?|Figure|Table)\s+[A-Za-z]?\.?\d+\b)|(?:\n\s*\d+(?:\.\d+)*\.?\s+[A-Z])|(?:\n\s*[A-Z]\.?.{ 0,80} et al\.?)|\Z)", re.IGNORECASE | re.DOTALL))
     return pats
-
 
 def _caption_from_raw_pages(fig: dict, raw_pages: list[str]) -> str:
     page = fig.get("page")
@@ -204,13 +173,12 @@ def _caption_from_raw_pages(fig: dict, raw_pages: list[str]) -> str:
             prefix = label_text.group(0).strip() if label_text else (fig.get("label") or "Figure")
             cap_body = m.group(1).strip() if m.lastindex else m.group(0).strip()
             cap = clean_text_artifacts(prefix + ". " + cap_body)
-            # Remove common footer fragments accidentally captured after captions.
+
             cap = re.split(r"\n\s*[A-Z](?:\.[A-Z])+.*?\s*/\s*[^/]+\s+\d+", cap)[0].strip()
             cap = _sanitize_figure_caption(cap, fig.get("label"))
             if len(cap) > 20:
                 return cap
     return ""
-
 
 def _enrich_figure_captions_from_raw_pages(figures: list[dict], raw_pages: list[str]) -> int:
     changed = 0
@@ -223,7 +191,7 @@ def _enrich_figure_captions_from_raw_pages(figures: list[dict], raw_pages: list[
             if current:
                 fig["caption"] = current
             continue
-        # Prefer raw enrichment only when it is clearly better and not a huge body-text capture.
+
         if (_caption_is_incomplete(current) and len(raw_cap) >= 25) or (len(raw_cap) > len(current) * 1.15 and len(raw_cap) <= 650):
             fig["caption"] = raw_cap
             fig["caption_source"] = "raw_page_enriched"
@@ -232,14 +200,12 @@ def _enrich_figure_captions_from_raw_pages(figures: list[dict], raw_pages: list[
             fig["caption"] = current or raw_cap
     return changed
 
-
 def _is_missing_supplementary_figure(fig: dict) -> bool:
     label = clean_text_artifacts(fig.get("label") or "")
     return bool(
         fig.get("image_file_missing")
         and re.search(r"\b(?:Fig\.?|Figure)\s*S\d+\b", label, re.IGNORECASE)
     )
-
 
 def _make_table_bbox_resolver(table_detections: list[dict] | None):
     dets = [d for d in (table_detections or []) if (d.get("type") or "") == "table"]
@@ -273,7 +239,6 @@ def _make_table_bbox_resolver(table_detections: list[dict] | None):
 
     return resolver
 
-
 def _is_related_work_output(section: dict) -> bool:
     if section.get("section_role") == "related_work":
         return True
@@ -284,12 +249,10 @@ def _is_related_work_output(section: dict) -> bool:
         h = (section.get("heading") or "").lower()
         return "related work" in h or "literature review" in h
 
-
 def _dominant_section(mentions: dict) -> str | None:
     if not mentions:
         return None
     return sorted(mentions.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
-
 
 def _asset_quality(item: dict) -> dict:
     quality = item.get("extraction_quality", "good")
@@ -308,7 +271,6 @@ def _asset_quality(item: dict) -> dict:
         "is_full_page_render": bool(is_full_page),
     }
 
-
 def _figure_placeholder(fig: dict) -> str:
     label = fig.get("label") or fig.get("figure_id") or "FIGURE"
     label = re.sub(r"\s+", " ", str(label)).strip()
@@ -322,28 +284,23 @@ def _figure_placeholder(fig: dict) -> str:
             label = f"Figure {label}"
     return f"[{label} here]"
 
-
 def _word_sequence_regex(words: list[str]) -> str:
-    # Allow spaces/punctuation/newlines between OCR/PDF-extracted words.
+
     return r"\W+".join(map(re.escape, words))
 
-
 def _caption_regexes(fig: dict) -> list[re.Pattern]:
-    """Build conservative regexes for caption leakage removal."""
+
     out: list[re.Pattern] = []
     cap = clean_text_artifacts(fig.get("caption", "") or "")
     label = clean_text_artifacts(fig.get("label", "") or "")
     if not cap:
         return out
 
-    # Exact-ish full caption with flexible whitespace and punctuation spacing.
     flex = re.escape(cap)
     flex = flex.replace(r"\ ", r"\s+")
     flex = flex.replace(r"\:", r"\s*:\s*").replace(r"\.", r"\s*\.\s*")
     out.append(re.compile(flex, re.IGNORECASE | re.DOTALL))
 
-    # Label + first/last words. Useful when body text has "Fig. 1 :" but JSON
-    # caption has "Fig. 1:".
     words = re.findall(r"[A-Za-z0-9]+", cap)
     if len(words) >= 8:
         first_words = words[:7]
@@ -352,15 +309,11 @@ def _caption_regexes(fig: dict) -> list[re.Pattern]:
         end = _word_sequence_regex(last_words)
         out.append(re.compile(start + r".{0,1600}?" + end, re.IGNORECASE | re.DOTALL))
 
-    # Optional leading label if caption text was split from the label.
     if label and label.lower() not in cap.lower() and len(words) >= 5:
         first = _word_sequence_regex(words[:6])
         lab = re.escape(label).replace(r"\ ", r"\s+")
         out.append(re.compile(lab + r"\W+" + first + r".{0,1000}?", re.IGNORECASE | re.DOTALL))
 
-    # Caption leakage can appear without the "Fig. N" prefix when GROBID
-    # inserts only the description into a section. Match a longer distinctive
-    # caption span from the body of the caption.
     if len(words) >= 16:
         for offset in (3, 6, 9):
             if len(words) > offset + 10:
@@ -368,7 +321,6 @@ def _caption_regexes(fig: dict) -> list[re.Pattern]:
                 end = _word_sequence_regex(words[-5:])
                 out.append(re.compile(start + r".{0,2400}?" + end, re.IGNORECASE | re.DOTALL))
     return out
-
 
 def _replace_caption_leakage_in_text(text: str, figures: list[dict]) -> tuple[str, int]:
     if not text:
@@ -389,9 +341,8 @@ def _replace_caption_leakage_in_text(text: str, figures: list[dict]) -> tuple[st
     out = re.sub(r"(?:\n\s*){3,}", "\n\n", out).strip()
     return out, n
 
-
 def _clean_sections_in_place(sections: list[dict], figures: list[dict]) -> int:
-    """Clean text artifacts and remove caption leakage from section fields."""
+
     total_removed = 0
     for sec in sections:
         for field in ("text", "text_no_tables"):
@@ -400,7 +351,6 @@ def _clean_sections_in_place(sections: list[dict], figures: list[dict]) -> int:
             sec[field] = cleaned
             total_removed += n
     return total_removed
-
 
 def _filter_sections_full(sections: list[dict]) -> list[dict]:
     kept = []
@@ -412,7 +362,6 @@ def _filter_sections_full(sections: list[dict]) -> list[dict]:
     for i, s in enumerate(kept):
         s["order"] = i
     return kept
-
 
 def _filter_sections_imrad(sections: list[dict]) -> list[dict]:
     kept = []
@@ -442,7 +391,6 @@ def _filter_sections_imrad(sections: list[dict]) -> list[dict]:
     for i, s in enumerate(kept):
         s["order"] = i
     return kept
-
 
 def _build_imrad_summary(sections: list[dict], methods_inference_report: dict | None) -> dict:
     found_set = set()
@@ -491,7 +439,6 @@ def _build_imrad_summary(sections: list[dict], methods_inference_report: dict | 
             summary["v4_enrichment"] = methods_inference_report.get("v4_enrichment")
     return summary
 
-
 def _build_fulltext_dict(*, doi, publisher, journal, title, abstract,
                          sections_full, references, extraction_timestamp,
                          quality_flags=None):
@@ -523,7 +470,6 @@ def _build_fulltext_dict(*, doi, publisher, journal, title, abstract,
         "sections": sections_out, "references": references, "full_text": full_text,
     }
 
-
 def _build_fulltext_imrad_dict(*, doi, publisher, journal, title, abstract,
                                sections_imrad, extraction_timestamp,
                                imrad_summary, quality_flags=None):
@@ -544,8 +490,6 @@ def _build_fulltext_imrad_dict(*, doi, publisher, journal, title, abstract,
         "imrad_summary": imrad_summary,
         "sections": sections_imrad,
     }
-
-
 
 def _table_sort_key(t: dict):
     num = str(t.get("num") or "")
@@ -603,8 +547,7 @@ def _build_tables_dict(*, doi, sections: list[dict], extraction_timestamp: str, 
     expected_count = int(table_stats.get("expected_table_count", len(expected_labels)) or 0)
     recovered_count = sum(1 for t in out if t.get("recovered", True))
     unrecovered_count = sum(1 for t in out if not t.get("recovered", True))
-    # If expected_table_count is larger than explicit unrecovered records, keep
-    # the higher value so quality_report cannot falsely pass missing tables.
+
     expected_unrecovered = max(0, expected_count - recovered_count) if expected_count else unrecovered_count
     tables_unrecovered = max(unrecovered_count, expected_unrecovered)
     return {
@@ -619,7 +562,6 @@ def _build_tables_dict(*, doi, sections: list[dict], extraction_timestamp: str, 
         "tables_unrecovered": tables_unrecovered,
         "tables": out,
     }
-
 
 def _build_figures_dict(*, doi, figures_enriched, extraction_timestamp, figures_dir=None):
     figures_out = []
@@ -708,16 +650,8 @@ def _build_figures_dict(*, doi, figures_enriched, extraction_timestamp, figures_
         "figures": figures_out,
     }
 
-
-
 def _normalize_figure_records(figures: list[dict]) -> int:
-    """Preserve real figure labels in ids/files.
 
-    Examples:
-      Fig. A.1 -> figure_id fig_A_1, label Figure A.1
-      Fig. S8  -> figure_id fig_S8,  label Figure S8
-      Figure 3 -> figure_id fig_03,  label Figure 3
-    """
     changed = 0
     used: dict[str, int] = {}
     for idx, fig in enumerate(figures or [], start=1):
@@ -769,13 +703,8 @@ def _render_page_asset(pdf_path, page_1indexed, out_png, dpi: int = 150) -> bool
     except Exception:
         return False
 
-
 def _recover_missing_figure_assets(figures_enriched, figures_source_dir, pdf_path) -> int:
-    """Ensure every figure entry has an image file when possible.
 
-    If pdffigures2/TEI gives a metadata entry but the PNG is missing, render the
-    figure's page as a conservative fallback so figures.json and figures/ agree.
-    """
     if not pdf_path:
         return 0
     figures_source_dir = Path(figures_source_dir)
@@ -808,7 +737,6 @@ def _recover_missing_figure_assets(figures_enriched, figures_source_dir, pdf_pat
             fig["quality_reasons"].append("image file missing and page-render recovery failed")
     return recovered
 
-
 def _copy_figure_images(figures_enriched, figures_source_dir, figures_dest_dir, pdf_path=None):
     figures_dest_dir.mkdir(parents=True, exist_ok=True)
     n_copied = 0
@@ -830,7 +758,7 @@ def _copy_figure_images(figures_enriched, figures_source_dir, figures_dest_dir, 
                     return
                 except OSError as e:
                     missing.append(f"{src_name} (copy failed: {e})")
-        # Last safety net: render the page directly into the final figures/ folder.
+
         page = fig.get("page")
         if pdf_path and page and _render_page_asset(pdf_path, page, dst_path):
             fig["image_file"] = f"{asset_id}.png"
@@ -849,7 +777,6 @@ def _copy_figure_images(figures_enriched, figures_source_dir, figures_dest_dir, 
             continue
         copy_one(fig)
     return n_copied, missing
-
 
 def write_paper_outputs(*, paper_data, figures_enriched, references, doi,
                         publisher, journal, output_dir, figures_source_dir,
@@ -873,14 +800,11 @@ def write_paper_outputs(*, paper_data, figures_enriched, references, doi,
         raw_caption_enriched = _enrich_figure_captions_from_raw_pages(figures_enriched, raw_pages)
         figure_labels_normalized = _normalize_figure_records(figures_enriched)
 
-        # Equations: keep display equations out of full text and write them to equations.json.
         equations_dict = build_equations_dict(
             doi=doi, extraction_timestamp=extraction_timestamp, sections=all_sections, raw_pages=raw_pages,
         )
         n_eq_ok = equations_dict.get("equation_count", 0)
 
-        # Tables: collect PyMuPDF/OCR table text into section["tables"], but keep
-        # only placeholders in section text.
         bbox_resolver = _make_table_bbox_resolver(table_detections)
         ocr_fn = ocr_engine.ocr_table_region if ocr_engine.ocr_enabled() else None
         try:
@@ -893,14 +817,12 @@ def write_paper_outputs(*, paper_data, figures_enriched, references, doi,
             for s in all_sections:
                 if not (s.get("text_no_tables") or "").strip():
                     s["text_no_tables"] = s.get("text", "") or ""
-            # Even if table extraction itself fails, still audit expected tables
-            # from raw PDF text and add explicit unrecovered placeholders.
+
             try:
                 table_stats.update(ensure_expected_tables_in_sections(all_sections, raw_pages))
             except Exception:
                 pass
 
-        # Clean text and remove caption leakage now that figure captions are known.
         captions_removed = _clean_sections_in_place(all_sections, figures_enriched)
 
         try:
@@ -917,9 +839,9 @@ def write_paper_outputs(*, paper_data, figures_enriched, references, doi,
         quality_flags = {
             "caption_leakage_detected": captions_removed > 0,
             "captions_removed_from_body": captions_removed,
-            "low_confidence_tables": 0,  # filled after tables_dict is built
-            "full_page_figure_fallbacks": 0,  # filled after figures_dict is built
-            "missing_figure_images": 0,  # filled after figures_dict is built
+            "low_confidence_tables": 0,
+            "full_page_figure_fallbacks": 0,
+            "missing_figure_images": 0,
             "bad_figure_crops": 0,
             "noisy_equations": equations_dict.get("stats", {}).get("noisy_equations", 0),
             "repaired_equations": equations_dict.get("stats", {}).get("repaired_equations", 0),
@@ -971,8 +893,6 @@ def write_paper_outputs(*, paper_data, figures_enriched, references, doi,
         with open(tmp_dir / _prefixed_name(doi, "equations.json"), "w", encoding="utf-8") as f:
             json.dump(equations_dict, f, ensure_ascii=False, indent=2)
 
-        # Recover any figure metadata entries whose image file is missing, then
-        # copy assets before writing figures.json so JSON stats match figures/.
         recovered_missing_images = _recover_missing_figure_assets(
             figures_enriched=figures_enriched,
             figures_source_dir=figures_source_dir,
@@ -993,11 +913,10 @@ def write_paper_outputs(*, paper_data, figures_enriched, references, doi,
         quality_flags["full_page_figure_fallbacks"] = figures_dict.get("stats", {}).get("page_render", 0)
         quality_flags["missing_figure_images"] = figures_dict.get("stats", {}).get("missing_images", 0)
         quality_flags["bad_figure_crops"] = figures_dict.get("stats", {}).get("still_bad", 0)
-        # refresh quality flags in already-written fulltext JSONs by updating in-memory dicts before final output below
+
         with open(tmp_dir / _prefixed_name(doi, "figures.json"), "w", encoding="utf-8") as f:
             json.dump(figures_dict, f, ensure_ascii=False, indent=2)
 
-        # Re-write fulltext files once after all quality flags have final counts.
         fulltext["quality_flags"] = quality_flags
         with open(tmp_dir / _prefixed_name(doi, "fulltext.json"), "w", encoding="utf-8") as f:
             json.dump(fulltext, f, ensure_ascii=False, indent=2)

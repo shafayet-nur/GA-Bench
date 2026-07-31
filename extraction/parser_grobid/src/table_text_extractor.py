@@ -1,26 +1,3 @@
-"""
-table_text_extractor.py  (v8 — tables.json + placeholders)
-
-Tables come from the PyMuPDF raw page text (the only place Elsevier tables that
-ARE text survive as a contiguous, caption-anchored block). Tables that are
-embedded as IMAGES yield only a caption in the raw text; those are detected as
-"caption-only" and routed to OCR (via an injected callback) so their content is
-recovered as Markdown rather than silently lost.
-
-v7.2 changes vs v7.1:
-    1. Capture stops at figure captions ("Fig. N"/"Figure N"), at bare page-
-       number lines, and at running header/footer lines, in addition to the
-       previous stops (next table caption, numbered section heading, prose).
-       Trailing footer/figure lines are also trimmed after capture.
-    2. Caption-only detection: a block whose body (after caption + legend) has
-       no data-like rows is treated as an image table -> OCR.
-    3. inject_tables_into_sections() accepts optional `pdf_path`, `ocr_fn`, and
-       `bbox_resolver` to OCR image tables. Faithfulness:
-         - text table         -> verbatim PyMuPDF text (table_unrecovered=0)
-         - image table + OCR   -> OCR'd markdown        (table_unrecovered=0)
-         - image table, no OCR -> caption only, FLAGGED (table_unrecovered=1)
-"""
-
 from __future__ import annotations
 import re
 from table_quality import clean_table_caption, clean_table_body, table_quality, is_table_mention_not_caption
@@ -66,18 +43,16 @@ _POST_TABLE_PROSE_START = re.compile(
     r"Table\s+\d+\s+presents\b|For these results\b|Please note\b|We included\b|"
     r"We numbered\b|The first execution\b|In other executions\b|In the rest of\b|"
     r"the adversarial model\b|"
-    # Common scientific prose accidentally captured after an Elsevier table.
+
     r"[A-Z]?[A-Za-z0-9-]+(?:,\s*[A-Z]?[A-Za-z0-9-]+)+\s+(?:is|are|was|were|has|have|show|shows|showed|exhibited)\b)"
     , re.IGNORECASE,
 )
 
-
 def _normalise_ws(text: str) -> str:
-    # Keep line breaks because tables are more useful as row-like text.
+
     text = re.sub(r"[ \t]+", " ", text or "")
     text = re.sub(r" *\n *", "\n", text)
     return text.strip()
-
 
 def _digit_ratio(line: str) -> float:
     s = line.strip()
@@ -85,7 +60,6 @@ def _digit_ratio(line: str) -> float:
         return 0.0
     relevant = sum(1 for c in s if c.isdigit() or c in "%\u00b1.,/()=<>|:;\u2013-")
     return relevant / len(s)
-
 
 def _looks_like_prose(line: str) -> bool:
     s = line.strip()
@@ -96,16 +70,14 @@ def _looks_like_prose(line: str) -> bool:
     words = re.findall(r"[A-Za-z]{4,}", s)
     return len(words) >= 8
 
-
 _PROSE_START_RE = re.compile(
     r"^\s*(?:As shown|As can be seen|The results|These results|This|These|Therefore|Moreover|Furthermore|In addition|"
     r"A summary|We |Our |It is |municipal |explored for |and the variations)\b",
     re.IGNORECASE,
 )
 
-
 def _looks_like_sentence_fragment(line: str) -> bool:
-    """Shorter prose fragment that often follows a table in raw PDF text."""
+
     st = line.strip()
     if len(st) < 28:
         return False
@@ -113,7 +85,7 @@ def _looks_like_sentence_fragment(line: str) -> bool:
         return True
     if _POST_TABLE_PROSE_START.match(st):
         return True
-    # Do not let identifiers like P180 alone make prose look like data.
+
     digit_ratio = _digit_ratio(st)
     if digit_ratio >= 0.22:
         return False
@@ -121,17 +93,13 @@ def _looks_like_sentence_fragment(line: str) -> bool:
     has_verb = re.search(r"\b(?:is|are|was|were|has|have|had|shows?|showed|measured|observed|exhibited|indicated)\b", st, re.I)
     if len(words) >= 7 and has_verb and digit_ratio < 0.22:
         return True
-    # Only treat generic prose as trailing prose if it starts like a paragraph.
-    # Long descriptive cells inside tables are common and should not be cut.
+
     if len(words) >= 8 and (_PROSE_START_RE.match(st) or _STRONG_PROSE_AFTER_TABLE.match(st) or st[:1].islower()):
         return True
     return bool(_PROSE_START_RE.match(st))
 
-
 def _is_stop_line(line: str) -> bool:
-    # Do not stop on bare numeric lines inside tables: many table cells are
-    # standalone numbers (e.g., 32, 13, 0.058). Bare page numbers are trimmed
-    # only at the very end by _trim_trailing_noise().
+
     return bool(
         _FIGURE_CAPTION_LINE.match(line)
         or _SECTION_HEADING_LINE.match(line)
@@ -139,7 +107,6 @@ def _is_stop_line(line: str) -> bool:
         or _BACK_MATTER_OR_BODY_START.match(line)
         or _POST_TABLE_PROSE_START.match(line)
     )
-
 
 def _is_genuine_caption(line: str, next_line: str = ""):
     m = _CAPTION_LINE.match(line)
@@ -150,16 +117,15 @@ def _is_genuine_caption(line: str, next_line: str = ""):
         return None
     if is_table_mention_not_caption(line):
         return None
-    # Body prose such as "Table 6 presents ..." is a table mention, not a caption.
+
     if re.match(r"^(?:for more details|presents?|shows?|lists?|reports?|provides?|summari[sz]es?|indicates?|illustrates?|is|are|was|were|has|have)\b", rest, re.IGNORECASE):
         return None
-    # Reject lower-case prose snippets such as "Table 1. wi and wi-1 are unknown...".
+
     if rest and rest[:1].islower():
         return None
     if not rest and _SECTION_HEADING_LINE.match(next_line or ""):
         return None
     return m.group("num")
-
 
 def _is_data_line(line: str) -> bool:
     s = line.strip()
@@ -172,11 +138,9 @@ def _is_data_line(line: str) -> bool:
         return True
     return False
 
-
 def _trim_trailing_noise(lines: list[str]) -> list[str]:
     out = list(lines)
-    # Only remove very strong trailing prose/stop lines. Do not remove generic
-    # long text because many valid table cells are explanatory sentences.
+
     while out and (
         _is_stop_line(out[-1])
         or _BARE_PAGENUM_LINE.match(out[-1] or "")
@@ -188,12 +152,11 @@ def _trim_trailing_noise(lines: list[str]) -> list[str]:
         out.pop()
     return out
 
-
 def _truncate_at_trailing_prose(lines: list[str]) -> list[str]:
-    """Cut text that clearly starts the paragraph after the table."""
+
     if len(lines) < 4:
         return lines
-    # Keep the first line (Table N) and caption/header area safe.
+
     data_seen = 0
     for k in range(1, len(lines)):
         if _is_data_line(lines[k]):
@@ -207,8 +170,6 @@ def _truncate_at_trailing_prose(lines: list[str]) -> list[str]:
                 return lines[:k]
     return lines
 
-
-
 def _line_is_table_continuation(line: str) -> bool:
     s = (line or "").strip()
     if not s:
@@ -217,14 +178,13 @@ def _line_is_table_continuation(line: str) -> bool:
         return False
     if _looks_like_sentence_fragment(s):
         return False
-    # Table rows often contain short headers/cells, symbols, numbers, or mixed tokens.
+
     if _digit_ratio(s) >= 0.08:
         return True
     toks = s.split()
     if len(toks) <= 8 and not s.endswith('.'):
         return True
     return False
-
 
 def _table_low_confidence(body: str) -> bool:
     lines = [ln.strip() for ln in (body or "").splitlines() if ln.strip()]
@@ -285,10 +245,8 @@ def _capture_table_blocks(page_text: str) -> list[dict]:
         i = j
     return blocks
 
-
 def _is_continuation_caption(text: str) -> bool:
     return bool(re.search(r"\bcontinued\b", text or "", re.IGNORECASE))
-
 
 def extract_tables_from_raw_pages(raw_pages: list[str]) -> list[dict]:
     out: list[dict] = []
@@ -304,9 +262,6 @@ def extract_tables_from_raw_pages(raw_pages: list[str]) -> list[dict]:
                 continue
             seen.add(exact_key)
 
-            # Merge multi-page continuations such as "Table 2 (continued)" or
-            # repeated table headers on the next page. Previously these were
-            # either dropped as duplicates or kept as separate incomplete tables.
             if num_key in by_num:
                 existing = by_num[num_key]
                 append_body = body or blk["text"]
@@ -329,14 +284,11 @@ def extract_tables_from_raw_pages(raw_pages: list[str]) -> list[dict]:
             by_num[num_key] = rec
     return out
 
-
 def assign_tables_to_sections(tables: list[dict], sections: list[dict]) -> dict:
     assignment: dict[int, list[dict]] = {}
     if not sections:
         return assignment
-    # Prefer page/nearest-preceding section heading over mention counts. Mention
-    # counts often point to Results paragraphs that discuss an earlier Methods
-    # table, which caused wrong IMRaD assignments in samples.
+
     page_index = []
     for idx, sec in enumerate(sections):
         pg = sec.get("page")
@@ -353,14 +305,14 @@ def assign_tables_to_sections(tables: list[dict], sections: list[dict]) -> dict:
         except Exception:
             tpage = None
         if tpage is not None and page_index:
-            # nearest preceding section page, or first following section if none
+
             preceding = [idx for pg, idx in page_index if pg <= tpage]
             if preceding:
                 target = preceding[-1]
             else:
                 target = page_index[0][1]
         if target is None:
-            # Fallback to first mention only when page information is missing.
+
             ref = re.compile(r"\bTable\s+" + re.escape(str(tbl.get("num") or "")) + r"\b", re.IGNORECASE)
             for idx, sec in enumerate(sections):
                 if ref.search(sec.get("text", "") or ""):
@@ -371,14 +323,13 @@ def assign_tables_to_sections(tables: list[dict], sections: list[dict]) -> dict:
         assignment.setdefault(target, []).append(tbl)
     return assignment
 
-
 def _looks_like_caption_continuation(line: str) -> bool:
     st = (line or "").strip()
     if not st:
         return False
     if _is_stop_line(st):
         return False
-    # Captions are often sentence-like and continue after "Table N".
+
     if st.endswith((".", ";", ":")):
         return True
     words = re.findall(r"[A-Za-z]{3,}", st)
@@ -388,15 +339,14 @@ def _looks_like_caption_continuation(line: str) -> bool:
         return True
     return False
 
-
 def _split_caption_and_body(block_text: str) -> tuple[str, str]:
-    """Return cleaned caption/legend and cleaned table body."""
+
     lines = [ln.strip() for ln in (block_text or "").splitlines() if ln.strip()]
     if not lines:
         return "", ""
     caption_lines = [lines[0]]
     i = 1
-    # Caption often continues for one or more sentence-like lines after "Table N".
+
     while i < len(lines) and _looks_like_caption_continuation(lines[i]):
         if re.search(r"\b(?:Eqs?\.\s*\(|Calculation indexes|Determination of|For more details)\b", lines[i], re.I):
             break
@@ -406,20 +356,16 @@ def _split_caption_and_body(block_text: str) -> tuple[str, str]:
     body, _body_reasons = clean_table_body("\n".join(lines[i:]).strip())
     return caption, body
 
-
 def _first_caption_line(block_text: str) -> str:
     cap, _body = _split_caption_and_body(block_text)
     return cap or block_text.split("\n", 1)[0].strip()
-
 
 def table_placeholder(num: str | None, fallback_id: str | None = None) -> str:
     label = f"Table {num}" if num else (fallback_id or "TABLE")
     return f"[{label} here]"
 
-
 def _table_label(num: str | None, fallback_id: str | None = None) -> str:
     return f"Table {num}" if num else (fallback_id or "Table")
-
 
 def _has_same_table(existing: list[dict], num: str | None, content: str) -> bool:
     norm_content = _normalise_ws(content or "")[:120].lower()
@@ -431,10 +377,8 @@ def _has_same_table(existing: list[dict], num: str | None, content: str) -> bool
             return True
     return False
 
-
-
 def _ocr_result_to_fields(ocr_result):
-    """Normalize OCR result from either legacy str or v9 structured dict."""
+
     if isinstance(ocr_result, dict):
         text = (ocr_result.get("markdown") or ocr_result.get("text") or "").strip()
         return {
@@ -453,12 +397,9 @@ def _ocr_result_to_fields(ocr_result):
         "quality_reasons": [],
     }
 
-
 def _structure_confidence_from_text(text: str, caption: str = "") -> float:
     score, _needs_review, _reasons, _structured = table_quality(text, caption)
     return score
-
-
 
 def _rows_to_markdown(rows: list[list[str]]) -> str:
     if not rows:
@@ -472,8 +413,6 @@ def _rows_to_markdown(rows: list[list[str]]) -> str:
         return "| " + " | ".join(str(c).replace("|", r"\|") for c in row) + " |"
     return "\n".join([fmt(header), fmt(sep)] + [fmt(r) for r in body])
 
-
-
 def _section_index_for_table_num(sections: list[dict], num: str) -> int:
     pat = re.compile(r"\bTable\s+" + re.escape(str(num)) + r"\b", re.I)
     for idx, sec in enumerate(sections or []):
@@ -481,15 +420,8 @@ def _section_index_for_table_num(sections: list[dict], num: str) -> int:
             return idx
     return 0
 
-
 def _add_unrecovered_expected_tables(sections: list[dict], raw_pages: list[str], existing_tables: list[dict]) -> int:
-    """Add explicit unrecovered table records for expected-but-missing tables.
 
-    This is a real recovery step for dataset integrity: papers should not report
-    table_count=0 when the PDF/TEI clearly contains Table references. If OCR or
-    bounding boxes cannot recover the body, the table is kept as an unrecovered
-    record so the quality report and downstream filters are truthful.
-    """
     expected = expected_table_numbers(raw_pages, sections)
     present = {str(t.get("num") or "").strip().upper() for t in existing_tables if t.get("num")}
     missing = sorted([n for n in expected if n and n.upper() not in present], key=table_sort_value)
@@ -502,7 +434,7 @@ def _add_unrecovered_expected_tables(sections: list[dict], raw_pages: list[str],
         sec_tables = sec.setdefault("tables", [])
         label = f"Table {num}"
         placeholder = f"[{label} here]"
-        # Avoid duplicates if this function is called more than once.
+
         if any(str(t.get("num") or "").upper() == str(num).upper() for t in sec_tables):
             continue
         sec_tables.append({
@@ -541,14 +473,7 @@ def inject_tables_into_sections(
     ocr_fn=None,
     bbox_resolver=None,
 ) -> dict:
-    """Attach tables to sections without injecting table content into text.
 
-    v8 behavior:
-      - full section text contains only a placeholder, e.g. [Table 2 here]
-      - actual table content is stored under section["tables"] for tables.json
-      - text_no_tables is kept aligned with text so downstream code sees one
-        clean IMRaD text file, not separate with/without table variants.
-    """
     stats = {"injected": 0, "text_tables": 0, "ocr_tables": 0, "unrecovered": 0}
 
     tables = extract_tables_from_raw_pages(raw_pages)
@@ -618,7 +543,6 @@ def inject_tables_into_sections(
             else:
                 stats["text_tables"] += 1
 
-            # Final cleanup/scoring of the table body regardless of source.
             cleaned_content, cleanup_reasons = clean_table_body(content)
             if cleaned_content:
                 content = cleaned_content
@@ -669,11 +593,9 @@ def inject_tables_into_sections(
     stats["expected_missing_tables"] = added_missing
     return stats
 
-
 _SENTINEL_SPAN = re.compile(
     re.escape(TABLE_OPEN) + r".*?" + re.escape(TABLE_CLOSE), re.DOTALL
 )
-
 
 def strip_table_sentinels(text: str, keep_content: bool) -> str:
     if not text:
@@ -685,13 +607,6 @@ def strip_table_sentinels(text: str, keep_content: bool) -> str:
         out = _SENTINEL_SPAN.sub("", text)
     out = re.sub(r"\n{3,}", "\n\n", out)
     return out.strip()
-# ---------------------------------------------------------------------------
-# v13 final table recovery layer
-# ---------------------------------------------------------------------------
-# The v12 extractor was good when it saw a clean 'Table N' caption block, but
-# some Elsevier PDFs expose tables only as body references or as caption-like
-# orphan sections.  The wrapper below preserves the v12 behavior and then adds
-# an expected-table audit/recovery pass so missing tables are explicit.
 
 from pdf_text_locator import normalize_table_num, table_label as _expected_table_label, find_table_caption_page
 
@@ -707,7 +622,6 @@ _TABLE_CAPTURE_STOP_RE = re.compile(
     re.I,
 )
 
-
 def _table_caption_or_reference_regex(num: str) -> re.Pattern:
     n = normalize_table_num(num)
     if n.startswith("S") and n[1:].isdigit():
@@ -716,12 +630,8 @@ def _table_caption_or_reference_regex(num: str) -> re.Pattern:
         num_pat = re.escape(n)
     return re.compile(rf"\b(?:Supplementary\s+)?Table\s+{num_pat}\b\.?\s*(.*)$", re.I)
 
-
 def _extract_caption_body_from_page_for_num(page_text: str, num: str) -> tuple[str, str]:
-    """Best-effort raw page recovery for a single expected table.
 
-    Returns (caption, body). Body can be empty if only a mention was found.
-    """
     lines = [ln.strip() for ln in (page_text or "").splitlines() if ln.strip()]
     if not lines:
         return _expected_table_label(num), ""
@@ -730,7 +640,6 @@ def _extract_caption_body_from_page_for_num(page_text: str, num: str) -> tuple[s
     if not starts:
         return _expected_table_label(num), ""
 
-    # Prefer caption-like line near top of a block, not prose 'Table N shows'.
     start = starts[0]
     for i in starts:
         ln = lines[i]
@@ -759,7 +668,6 @@ def _extract_caption_body_from_page_for_num(page_text: str, num: str) -> tuple[s
     body, _ = clean_table_body(body)
     return caption, body
 
-
 def _find_section_for_expected_table(sections: list[dict], num: str, page: int | None) -> int:
     n = normalize_table_num(num)
     pat = re.compile(rf"\bTable\s+{re.escape(n)}\b", re.I)
@@ -779,19 +687,12 @@ def _find_section_for_expected_table(sections: list[dict], num: str, page: int |
             return sorted(candidates)[-1][1]
     return 0
 
-
 def ensure_expected_tables_in_sections(sections: list[dict], raw_pages: list[str] | None) -> dict:
-    """Ensure every expected table is either recovered or explicitly unrecovered.
 
-    Returns stats used by output_writer and quality_report.
-    """
     raw_pages = raw_pages or []
     expected = expected_table_numbers(raw_pages, sections)
     expected_sorted = sorted(expected, key=table_sort_value)
 
-    # First, try to upgrade existing caption-only/unrecovered table records
-    # using page-text recovery. This handles PDFs where v12 detected the caption
-    # but did not capture the body.
     for sec in sections or []:
         for t in sec.get("tables", []) or []:
             n = normalize_table_num(t.get("num"))
@@ -909,7 +810,6 @@ def ensure_expected_tables_in_sections(sections: list[dict], raw_pages: list[str
         "expected_unrecovered_added": unrecovered_added,
     }
 
-
 def inject_tables_into_sections(
     sections: list[dict],
     raw_pages: list[str],
@@ -918,7 +818,7 @@ def inject_tables_into_sections(
     ocr_fn=None,
     bbox_resolver=None,
 ) -> dict:
-    """v13 wrapper: run v12 extraction, then enforce expected-table accounting."""
+
     stats = _INJECT_TABLES_INTO_SECTIONS_V12(
         sections, raw_pages,
         pdf_path=pdf_path, ocr_fn=ocr_fn, bbox_resolver=bbox_resolver,

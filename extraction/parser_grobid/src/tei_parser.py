@@ -1,21 +1,3 @@
-"""
-GROBID TEI XML parser (v8).
-
-v7.2 changes vs v7.1:
-    1. Equations: each <formula> is replaced inline by a stable placeholder
-       "[[EQN:<n>]]" (n = document-global counter) instead of its garbled
-       text. The formula's `coords` and raw text are recorded per-section under
-       `equations`: [{id, coords, raw}]. The output writer OCRs each coord to
-       LaTeX and substitutes it back into the placeholder. Formulas appear in
-       BOTH the with-tables and no-tables variants (only tables are stripped).
-       Inline math inside <p> (no coords) is left as-is.
-
-v7.1 changes vs v7: section `page`, table_count/table_unrecovered_count,
-    unrecovered-table placeholder (unchanged here).
-
-v7 changes vs v6: reference extraction; text/text_no_tables split.
-"""
-
 from __future__ import annotations
 import re
 from pathlib import Path
@@ -26,10 +8,8 @@ from imrad_classifier import classify_imrad, category_propagates, is_code_block,
 from pua_remap import remap_pua_glyphs
 from text_cleanup import clean_text_artifacts
 
-
 TEI_NS = "http://www.tei-c.org/ns/1.0"
 NSMAP = {"tei": TEI_NS}
-
 
 _IMRAD_HEADING_VOCAB = re.compile(
     r"^(?:introduction|intro|background|motivation|overview|objectives?|"
@@ -64,18 +44,15 @@ APPENDIX_HEADING_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-
 def _is_appendix_heading(heading: str) -> bool:
     if not heading:
         return False
     return APPENDIX_HEADING_PATTERN.match(heading.strip()) is not None
 
-
 def _is_caption_heading(heading: str) -> bool:
     if not heading:
         return False
     return CAPTION_HEADING_PATTERN.match(heading.strip()) is not None
-
 
 def _is_likely_figure_label(heading: str) -> bool:
     h = heading.strip()
@@ -95,14 +72,12 @@ def _is_likely_figure_label(heading: str) -> bool:
         return True
     return False
 
-
 def _is_subsection_marker(heading: str) -> bool:
     h = heading.strip()
     for pat in SUBSECTION_MARKER_PATTERNS:
         if pat.match(h):
             return True
     return False
-
 
 _MATH_HEADING_SYMBOL_RE = re.compile(r"[=∫∑∏√≈≠≤≥<>±*/^]|\b(?:lambda|sigma|psi|theta|eta|mu|nu|kappa)\b|[λσψθμηνκΩ∂]", re.IGNORECASE)
 
@@ -112,7 +87,7 @@ def _is_math_like_heading(heading: str) -> bool:
         return False
     if _MATH_HEADING_SYMBOL_RE.search(h):
         return True
-    # Reject very formula-like headings made mostly of short math tokens.
+
     tokens = re.findall(r"[A-Za-z0-9_]+", h)
     if len(tokens) >= 3 and len(h) < 90:
         short = sum(1 for t in tokens if len(t) <= 3)
@@ -136,7 +111,6 @@ def _heading_passes_filter(heading: str, has_tei_head_level: bool) -> bool:
         return False
     return True
 
-
 CAPTION_SOFT_CAP_CHARS = 400
 
 CAPTION_TRIM_MARKERS = [
@@ -145,7 +119,6 @@ CAPTION_TRIM_MARKERS = [
     re.compile(r"\bIn\s+(?:Fig|Figure|Table)\.?\s+\d", re.IGNORECASE),
     re.compile(r"\b(?:Fig|Figure|Table|Scheme|Algorithm)\.?\s+\d+\s+[A-Z]"),
 ]
-
 
 def _trim_caption(caption: str) -> str:
     if not caption:
@@ -165,17 +138,13 @@ def _trim_caption(caption: str) -> str:
         cut = CAPTION_SOFT_CAP_CHARS
     return c[:cut].rstrip(" .,;:") + "."
 
-
 def _strip_ns(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
-
 _SPACED_TAGGED = r"T\s+[Aa]\s+[Gg]\s+[Gg]\s+[Ee]\s+[Dd]"
-
 
 def _spaced_opt(word: str) -> str:
     return r"\s*".join(re.escape(c) for c in word)
-
 
 _TAG_NAME = (
     r"(?:" + _spaced_opt("End") + r"|" + _spaced_opt("Start") + r"|H\s*\d|P\b|"
@@ -189,13 +158,11 @@ _TAGGED_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 
-
 def _strip_tagged_markers(text: str) -> str:
     if not text:
         return text
     out = _TAGGED_MARKER_RE.sub(" ", text)
     return re.sub(r"\s+", " ", out).strip()
-
 
 def _text_of(element) -> str:
     if element is None:
@@ -206,7 +173,6 @@ def _text_of(element) -> str:
     text = _strip_tagged_markers(text)
     return clean_text_artifacts(text)
 
-
 def _coords_first_page(coords) -> int | None:
     if not coords:
         return None
@@ -215,7 +181,6 @@ def _coords_first_page(coords) -> int | None:
         return int(first_region.split(",")[0])
     except (ValueError, IndexError, AttributeError):
         return None
-
 
 def _section_page(div_el, head_el) -> int | None:
     if head_el is not None:
@@ -233,13 +198,11 @@ def _section_page(div_el, head_el) -> int | None:
                 return p
     return None
 
-
 def _extract_title(root) -> str:
     title_el = root.find(".//tei:teiHeader//tei:titleStmt/tei:title[@type='main']", NSMAP)
     if title_el is None:
         title_el = root.find(".//tei:teiHeader//tei:titleStmt/tei:title", NSMAP)
     return _text_of(title_el)
-
 
 def _extract_abstract(root) -> str:
     abstract_el = root.find(".//tei:profileDesc/tei:abstract", NSMAP)
@@ -251,7 +214,6 @@ def _extract_abstract(root) -> str:
         if text:
             paragraphs.append(text)
     return "\n\n".join(paragraphs)
-
 
 def _table_to_markdown(table_el):
     rows = table_el.findall(".//tei:row", NSMAP)
@@ -274,9 +236,7 @@ def _table_to_markdown(table_el):
     raw_text = "\n".join("\t".join(r) for r in grid)
     return markdown, raw_text
 
-
 TABLE_UNRECOVERED_PLACEHOLDER = "[Table: content not recovered]"
-
 
 def _table_num_from_text(text: str) -> str | None:
     if not text:
@@ -284,23 +244,14 @@ def _table_num_from_text(text: str) -> str | None:
     m = re.search(r"\bTable\s+((?:[A-Z]\.?)?\d+[A-Za-z]?|[IVXLC]+)\b", text, re.IGNORECASE)
     return m.group(1) if m else None
 
-
 def _table_label_from_num(num: str | None, fallback_id: str) -> str:
     return f"Table {num}" if num else fallback_id
-
 
 def _table_placeholder(label: str) -> str:
     return f"[{label} here]"
 
-
 def _extract_section_content(div_el, eq_state):
-    """Returns (text_with_placeholders, text_without_tables, tables, equations).
 
-    In v8, table content is not inserted into body text. A stable placeholder is
-    inserted instead, and the table body is stored separately for tables.json.
-    Equations remain in-place through placeholders that output_writer resolves
-    into readable [Equation N: ...] blocks.
-    """
     tables = []
     equations = []
     parts_with = []
@@ -363,15 +314,12 @@ def _extract_section_content(div_el, eq_state):
 
     return ("\n\n".join(parts_with), "\n\n".join(parts_without), tables, equations)
 
-
 def _table_stats(tables: list[dict]) -> tuple[int, int]:
     total = len(tables)
     unrecovered = sum(1 for t in tables if not (t.get("raw_text") or "").strip())
     return total, unrecovered
 
-
 _LEADING_NUMBERED_INTRO = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s+introduction\b", re.IGNORECASE)
-
 
 def _walk_sections(body_el):
     sections = []
@@ -381,7 +329,6 @@ def _walk_sections(body_el):
     for div in body_el.findall("./tei:div", NSMAP):
         _walk_div_recursive(div, sections, state)
     return sections
-
 
 def _walk_div_recursive(div, sections, state):
     head_el = div.find("./tei:head", NSMAP)
@@ -471,7 +418,6 @@ def _walk_div_recursive(div, sections, state):
 
     return sections
 
-
 _ORPHAN_INTRO_PREFIXES = [
     re.compile(r"^\s*\[\d+\]"),
     re.compile(r"^\s*With\b", re.IGNORECASE),
@@ -480,7 +426,6 @@ _ORPHAN_INTRO_PREFIXES = [
     re.compile(r"^\s*The (?:rapid|growing|increasing)", re.IGNORECASE),
     re.compile(r"^\s*Over the (?:past|last)", re.IGNORECASE),
 ]
-
 
 def _looks_like_orphan_introduction(section: dict) -> bool:
     if section.get("heading"):
@@ -497,7 +442,6 @@ def _looks_like_orphan_introduction(section: dict) -> bool:
             return True
     return False
 
-
 def _rescue_first_section_heading(sections: list[dict]) -> None:
     if not sections:
         return
@@ -508,7 +452,6 @@ def _rescue_first_section_heading(sections: list[dict]) -> None:
         first["heading"] = "Introduction"
         first["imrad"] = "introduction"
 
-
 def _figure_page_from_coords(coords):
     if not coords:
         return None
@@ -517,7 +460,6 @@ def _figure_page_from_coords(coords):
         return int(first_region.split(",")[0])
     except (ValueError, IndexError):
         return None
-
 
 def _extract_figures(root):
     figures = []
@@ -545,7 +487,6 @@ def _extract_figures(root):
 
     return figures
 
-
 def _format_authors(bs) -> str:
     out = []
     for pers in bs.findall(".//tei:author/tei:persName", NSMAP):
@@ -558,7 +499,6 @@ def _format_authors(bs) -> str:
         elif surname:
             out.append(surname)
     return ", ".join(out)
-
 
 def _format_biblstruct(bs) -> str:
     authors = _format_authors(bs)
@@ -632,7 +572,6 @@ def _format_biblstruct(bs) -> str:
     citation = " ".join(p for p in parts if p).strip()
     return re.sub(r"\s+", " ", citation)
 
-
 def _extract_references(root) -> list[str]:
     refs = []
     for bs in root.findall(".//tei:back//tei:listBibl/tei:biblStruct", NSMAP):
@@ -645,7 +584,6 @@ def _extract_references(root) -> list[str]:
             if s:
                 refs.append(s)
     return refs
-
 
 def parse_tei(tei_path):
     tei_path = Path(tei_path)
@@ -674,7 +612,6 @@ def parse_tei(tei_path):
         "figures": figures,
         "references": references,
     }
-
 
 if __name__ == "__main__":
     import sys

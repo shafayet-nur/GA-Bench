@@ -1,13 +1,4 @@
-"""
-quality_report.py (v13)
-
-Creates final per-paper quality report for publication-dataset filtering.
-v13 adds strict expected-table accounting: if the paper mentions/captions tables
-but they are not recovered, tables_status becomes needs_review.
-"""
-
 from __future__ import annotations
-
 
 def _status_from_counts(*, hard_fail: bool = False, review: bool = False) -> str:
     if hard_fail:
@@ -16,14 +7,11 @@ def _status_from_counts(*, hard_fail: bool = False, review: bool = False) -> str
         return "needs_review"
     return "pass"
 
-
 def _table_review_count(tables: dict) -> int:
     return sum(1 for t in tables.get("tables", []) or [] if t.get("needs_review") or t.get("low_confidence"))
 
-
 def _equation_review_count(equations: dict) -> int:
     return sum(1 for e in equations.get("equations", []) or [] if e.get("needs_review") or e.get("confidence") in {"needs_review", "repaired"})
-
 
 def build_quality_report(*, doi: str, fulltext: dict, imrad: dict | None,
                          figures: dict, tables: dict, equations: dict,
@@ -42,7 +30,6 @@ def build_quality_report(*, doi: str, fulltext: dict, imrad: dict | None,
     tables_unrecovered = int(tables.get("tables_unrecovered", quality_flags.get("tables_unrecovered", 0)) or 0)
     low_conf_tables = int(quality_flags.get("low_confidence_tables", 0) or 0)
 
-    # If expected tables exist but no table record exists, this must not pass.
     missing_expected_tables = max(0, expected_table_count - table_count)
     if expected_table_count > 0:
         tables_unrecovered = max(tables_unrecovered, missing_expected_tables)

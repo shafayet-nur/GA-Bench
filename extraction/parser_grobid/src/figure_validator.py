@@ -1,19 +1,9 @@
-"""
-Figure / table completeness validator (v6).
-
-v6: version string update only. No logic changes from v5 — all validation
-logic (label_utils-based canonical key comparison, range/list expansion,
-supplemental/appendix key tracking) is unchanged.
-"""
-
 from __future__ import annotations
 import re
 
 from label_utils import find_caption_anchors, parse_label
 
-
 MAX_REASONABLE_REFERENCE_NUMBER = 50
-
 
 _FIG_RANGE_RE = re.compile(
     r"\b(?:Fig(?:s|ures?)?)\.?\s*(\d+)\s*(?:-|\u2013|\u2014|to)\s*(\d+)(?![0-9])",
@@ -33,7 +23,6 @@ _TAB_LIST_RE = re.compile(
     r"\b(?:Tab(?:les?)?)\.?\s*(\d+(?:" + _LIST_SEP + r"\d+)+)(?![0-9])",
     re.IGNORECASE,
 )
-
 
 def _keys_from_text(text: str, kind: str) -> set[str]:
     keys: set[str] = set()
@@ -73,7 +62,6 @@ def _keys_from_text(text: str, kind: str) -> set[str]:
                     keys.add(f"{kind}::{n}")
     return keys
 
-
 def _extracted_keys(figures: list[dict], kind: str) -> set[str]:
     keys: set[str] = set()
     for fig in figures:
@@ -83,7 +71,6 @@ def _extracted_keys(figures: list[dict], kind: str) -> set[str]:
         if rec and rec["kind"] == kind:
             keys.add(rec["key"])
     return keys
-
 
 def find_missing_references(
     sections: list[dict],
@@ -116,7 +103,6 @@ def find_missing_references(
         "extracted_scheme_keys": sorted(extracted_schs),
     }
 
-
 def _ints_from_keys(keys: list[str]) -> list[int]:
     out: list[int] = []
     for k in keys:
@@ -128,14 +114,11 @@ def _ints_from_keys(keys: list[str]) -> list[int]:
                 pass
     return sorted(set(out))
 
-
 def missing_table_numbers_int(missing_result: dict) -> list[int]:
     return _ints_from_keys(missing_result.get("missing_tables", []))
 
-
 def missing_figure_numbers_int(missing_result: dict) -> list[int]:
     return _ints_from_keys(missing_result.get("missing_figures", []))
-
 
 if __name__ == "__main__":
     fake_sections = [

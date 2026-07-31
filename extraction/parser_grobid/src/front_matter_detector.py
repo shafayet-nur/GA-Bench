@@ -1,9 +1,3 @@
-"""
-front_matter_detector.py (v9)
-
-Detects repository/license/preprint/front-matter pages as metadata only.
-It does not delete pages or change the PDF.
-"""
 from __future__ import annotations
 import re
 
@@ -18,14 +12,11 @@ _FRONT_PATTERNS = {
 _ARTICLE_START_RE = re.compile(r"\b(?:abstract|a\s*b\s*s\s*t\s*r\s*a\s*c\s*t|1\.?\s+Introduction|Introduction)\b", re.I)
 _TITLE_HINT_RE = re.compile(r"\b(?:article info|keywords|received|accepted|available online|journal homepage)\b", re.I)
 
-
 def detect_front_matter(raw_pages: list[str]) -> dict:
     pages = raw_pages or []
     detected_pages = []
     reasons_by_page: dict[str, list[str]] = {}
 
-    # Only inspect the first few pages; later occurrences of "Highlights" etc.
-    # should not be treated as front matter.
     for idx, text in enumerate(pages[:5], start=1):
         t = text or ""
         reasons = [name for name, rx in _FRONT_PATTERNS.items() if rx.search(t)]
