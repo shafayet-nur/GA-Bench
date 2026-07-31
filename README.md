@@ -24,7 +24,6 @@ GA-Bench-Code/
 │       ├── task1_inter_annotator_validation.py
 │       ├── task1_naive_vs_human.py
 │       ├── task1_relation_agreement_tables.py
-│       ├── task1_scoring_copy.py
 │       └── task1_scoring.py
 ├── extraction/
 │   └── parser_grobid/
@@ -59,7 +58,6 @@ Contains scoring, validation, agreement, and comparison scripts:
 - `task1_inter_annotator_validation.py`
 - `task1_naive_vs_human.py`
 - `task1_relation_agreement_tables.py`
-- `task1_scoring_copy.py`
 - `task1_scoring.py`
 
 ### `extraction/`
@@ -76,7 +74,6 @@ Contains the GROBID-based parser implementation and its related files.
 
 - Update local input, output, model, and environment paths before running the scripts.
 - PBS scripts may need to be adapted to the resource requirements and scheduler configuration of the target cluster.
-- Keep datasets, model weights, generated outputs, logs, access tokens, and environment-specific files outside the Git repository unless they are intentionally part of the code release.
 
 ## Dataset
 
