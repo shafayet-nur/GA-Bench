@@ -84,12 +84,10 @@ https://huggingface.co/datasets/ga-bench/GA-Bench
 ## Citation
 
 ```bibtex
-@dataset{nur2026gabench,
-  author       = {Nur, Shafayet and Hossain, Adiba Ibnat and Chowdhury, Maliha Zahan and Alhoori, Hamed},
-  title        = {{GA-Bench: 10,000 Source-Linked Graphical Abstracts for Evaluating IMRaD Coverage}},
-  year         = {2026},
-  publisher    = {Hugging Face},
-  url          = {https://huggingface.co/datasets/ga-bench/GA-Bench},
-  note         = {Dataset and accompanying research artifact}
-}
+@software{nur2026gabenchcode,
+  author = {Shafayet Nur and Adiba Ibnat Hossain and Maliha Zahan Chowdhury and Hamed Alhoori},
+  title = {{GA-Bench}: Source Code and Evaluation Pipeline},
+  year = {2026},
+  url = {https://github.com/ga-bench/GA-Bench},
+  note = {GitHub repository} }
 ```
