@@ -96,29 +96,6 @@ Contains the GROBID-based document parsing workflow and related files.
 
 ---
 
-## Evaluation Workflow
-
-The completeness evaluation workflow is organized into two main stages.
-
-### Stage 1: Structured Reference Profile Construction
-
-The source paper is processed to construct a **Structured Reference Profile (SRP)** representing salient information from the paper's Introduction, Methods, Results, and Discussion sections.
-
-### Stage 2: Graphical-Abstract Grounding
-
-The graphical abstract is evaluated against the Structured Reference Profile to produce model-generated judgments related to:
-
-- IMRaD section coverage
-- Entity grounding
-- Cross-section relation traceability
-- Discrete completeness level
-
-The repository also includes the corresponding **direct-prompt baseline** and scoring scripts used in the accompanying study.
-
-For the complete methodology and scoring definitions, please refer to the companion paper.
-
----
-
 ## Usage Notes
 
 Before running the scripts:
@@ -137,11 +114,9 @@ The provided PBS files reflect the computing environment used during development
 
 The associated **GA-Bench dataset** is available on Hugging Face:
 
-**Dataset repository:**  
-https://huggingface.co/datasets/shafayet217/GA-Bench
+**Dataset repository:**  https://huggingface.co/datasets/shafayet217/GA-Bench
 
-**Persistent DOI:**  
-https://doi.org/10.57967/hf/10514
+**Persistent DOI:**  https://doi.org/10.57967/hf/10514
 
 The dataset contains the source-linked paper–graphical-abstract pairs, bibliographic metadata, extracted scholarly-document components, human annotations, and model-generated completeness outputs used with the code in this repository.
 
