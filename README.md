@@ -1,4 +1,4 @@
-# GA-Bench: Code and Evaluation Pipeline
+# GA-Bench: Source Code and Evaluation Pipeline
 
 This repository contains the **code, prompts, job scripts, extraction utilities, and evaluation pipeline** associated with the GA-Bench project.
 
