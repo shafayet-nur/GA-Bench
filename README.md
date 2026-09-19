@@ -148,8 +148,7 @@ If you use the code or evaluation pipeline, please cite the software repository:
   title   = {{GA-Bench}: Source Code and Evaluation Pipeline},
   year    = {2026},
   version = {1.0},
-  url     = {https://github.com/ga-bench/GA-Bench},
-  note    = {Code repository accompanying the GA-Bench project}
+  url     = {https://github.com/ga-bench/GA-Bench}
 }
 ```
 
@@ -165,8 +164,7 @@ Please also cite the GA-Bench dataset when using the released data:
   publisher = {Hugging Face},
   version   = {1.0},
   doi       = {10.57967/hf/10514},
-  url       = {https://huggingface.co/datasets/shafayet217/GA-Bench},
-  note      = {Dataset accompanying the GA-Bench project}
+  url       = {https://huggingface.co/datasets/shafayet217/GA-Bench}
 }
 ```
 
