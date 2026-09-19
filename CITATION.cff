@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+
+title: "GA-Bench: Source Code and Evaluation Pipeline"
+
+version: 1.0.0
+
+date-released: 2026-09-19
+
+authors:
+  - family-names: "Nur"
+    given-names: "Shafayet"
+  - family-names: "Hossain"
+    given-names: "Adiba Ibnat"
+  - family-names: "Chowdhury"
+    given-names: "Maliha Zahan"
+  - family-names: "Alhoori"
+    given-names: "Hamed"
+
+type: software
+
+repository-code: "https://github.com/shafayet-nur/GA-Bench"
+
+abstract: >
+  GA-Bench provides the source code, prompts, extraction utilities,
+  evaluation pipeline, direct-prompt baselines, Structured Reference
+  Profile workflow, and scoring scripts associated with the GA-Bench
+  project for evaluating IMRaD coverage and cross-section relation
+  traceability in scientific graphical abstracts.
+
+keywords:
+  - graphical abstracts
+  - IMRaD
+  - multimodal evaluation
+  - scientific document understanding
+  - vision-language models
+  - digital libraries
+  - scholarly communication
