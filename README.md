@@ -148,6 +148,7 @@ If you use the code or evaluation pipeline, please cite the software repository:
   title   = {{GA-Bench}: Source Code and Evaluation Pipeline},
   year    = {2026},
   version = {1.0},
+  doi = {https://doi.org/10.5281/zenodo.22848391},
   url     = {https://github.com/shafayet-nur/GA-Bench}
 }
 ```
