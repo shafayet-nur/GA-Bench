@@ -164,7 +164,7 @@ Please also cite the GA-Bench dataset when using the released data:
   year      = {2026},
   publisher = {Hugging Face},
   version   = {1.0},
-  doi       = {10.57967/hf/10514},
+  doi       = {https://doi.org/10.57967/hf/10514},
   url       = {https://huggingface.co/datasets/shafayet217/GA-Bench}
 }
 ```
