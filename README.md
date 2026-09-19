@@ -1,14 +1,25 @@
-# GA-Bench Code
+# GA-Bench: Code and Evaluation Pipeline
 
-This repository contains the code associated with the GA-Bench project.
+This repository contains the **code, prompts, job scripts, extraction utilities, and evaluation pipeline** associated with the GA-Bench project.
 
-Dataset repository:  
-https://huggingface.co/datasets/ga-bench/GA-Bench
+GA-Bench is a source-linked resource of **10,000 open-access paper–graphical-abstract pairs** designed for evaluating descriptive **IMRaD coverage** and **cross-section relation traceability** in scientific graphical abstracts.
 
-## Repository structure
+## Related Resources
+
+- **Dataset:** https://huggingface.co/datasets/shafayet217/GA-Bench
+- **Dataset DOI:** https://doi.org/10.57967/hf/10514
+- **Paper:** *GA-Bench: 10,000 Source-Linked Graphical Abstracts for Evaluating IMRaD Coverage* — accepted for presentation at the 2026 ACM/IEEE Joint Conference on Digital Libraries (JCDL 2026)
+
+For dataset contents, metadata fields, statistics, licensing, annotations, and responsible-use information, please refer to the Hugging Face dataset repository.
+
+For details on dataset construction, annotation, evaluation methodology, experimental setup, results, limitations, and reproducibility, please refer to the companion JCDL 2026 paper.
+
+---
+
+## Repository Structure
 
 ```text
-GA-Bench-Code/
+GA-Bench/
 ├── completeness/
 │   ├── direct_prompt_baseline/
 │   │   ├── codes/
@@ -31,27 +42,40 @@ GA-Bench-Code/
 └── README.md
 ```
 
-## Folder guide
+---
+
+## Folder Guide
 
 ### `completeness/`
 
-Contains the code, prompts, job files, pipeline stages, and scoring scripts used for the completeness-related workflow.
+Contains the code, prompts, job scripts, pipeline stages, and scoring utilities used for the graphical-abstract completeness evaluation workflow.
 
-#### `completeness/direct_prompt_baseline/`
+### `completeness/direct_prompt_baseline/`
 
-- `codes/` — Python code for the direct-prompt baseline.
-- `pbs/` — PBS job scripts for running the baseline on an HPC system.
-- `prompts/` — prompt files used by the baseline.
+Contains the implementation of the direct-prompt baseline used for comparison with the Structured Reference Profile pipeline.
 
-#### `completeness/main_pipeline/`
+- `codes/` — Python scripts for the direct-prompt baseline
+- `pbs/` — PBS job scripts for running the baseline on an HPC system
+- `prompts/` — prompt templates used by the baseline
 
-- `prompts/` — prompt files used by the main pipeline.
-- `stage1/` — Stage 1 implementation files.
-- `stage2/` — Stage 2 implementation files.
+### `completeness/main_pipeline/`
 
-#### `completeness/scoring_codes/`
+Contains the main **Structured Reference Profile (SRP)** evaluation pipeline.
 
-Contains scoring, validation, agreement, and comparison scripts:
+- `prompts/` — prompt templates used by the main pipeline
+- `stage1/` — Stage 1 implementation for constructing Structured Reference Profiles
+- `stage2/` — Stage 2 implementation for graphical-abstract grounding and completeness evaluation
+
+The evaluation pipeline uses two source-paper input variants:
+
+- **Variant A:** title, abstract, and IMRaD sections
+- **Variant B:** Variant A inputs plus paper figures and tables
+
+### `completeness/scoring_codes/`
+
+Contains scripts used for scoring, validation, agreement analysis, and comparison of model-generated and human annotations.
+
+Included scripts:
 
 - `task1_coverage_breakdown.py`
 - `task1_human_relation_validation.py`
@@ -62,32 +86,126 @@ Contains scoring, validation, agreement, and comparison scripts:
 
 ### `extraction/`
 
-Contains the document-extraction code.
+Contains code related to scholarly-document extraction and preprocessing.
 
-#### `extraction/parser_grobid/`
+### `extraction/parser_grobid/`
 
-Contains the GROBID-based parser implementation and its related files.
+Contains the GROBID-based document parsing workflow and related files.
 
-- `pbs/` — PBS job scripts for running the extraction pipeline on an HPC system.
+- `pbs/` — PBS job scripts for running the extraction pipeline on an HPC system
 
-## Usage notes
+---
 
-- Update local input, output, model, and environment paths before running the scripts.
-- PBS scripts may need to be adapted to the resource requirements and scheduler configuration of the target cluster.
+## Evaluation Workflow
+
+The completeness evaluation workflow is organized into two main stages.
+
+### Stage 1: Structured Reference Profile Construction
+
+The source paper is processed to construct a **Structured Reference Profile (SRP)** representing salient information from the paper's Introduction, Methods, Results, and Discussion sections.
+
+### Stage 2: Graphical-Abstract Grounding
+
+The graphical abstract is evaluated against the Structured Reference Profile to produce model-generated judgments related to:
+
+- IMRaD section coverage
+- Entity grounding
+- Cross-section relation traceability
+- Discrete completeness level
+
+The repository also includes the corresponding **direct-prompt baseline** and scoring scripts used in the accompanying study.
+
+For the complete methodology and scoring definitions, please refer to the companion paper.
+
+---
+
+## Usage Notes
+
+Before running the scripts:
+
+- Update local input and output paths as needed.
+- Update model paths and environment-specific settings.
+- Ensure that the required model and Python dependencies are installed.
+- Adapt PBS scripts to the scheduler and computational resources available on the target HPC system.
+- Review file paths carefully because some scripts may contain environment-specific directory configurations.
+
+The provided PBS files reflect the computing environment used during development and may require modification for other systems.
+
+---
 
 ## Dataset
 
-The associated GA-Bench dataset is available on Hugging Face:
+The associated **GA-Bench dataset** is available on Hugging Face:
 
-https://huggingface.co/datasets/ga-bench/GA-Bench
+**Dataset repository:**  
+https://huggingface.co/datasets/shafayet217/GA-Bench
+
+**Persistent DOI:**  
+https://doi.org/10.57967/hf/10514
+
+The dataset contains the source-linked paper–graphical-abstract pairs, bibliographic metadata, extracted scholarly-document components, human annotations, and model-generated completeness outputs used with the code in this repository.
+
+---
+
+## Paper
+
+**GA-Bench: 10,000 Source-Linked Graphical Abstracts for Evaluating IMRaD Coverage**
+
+**Authors:** Shafayet Nur, Adiba Ibnat Hossain, Maliha Zahan Chowdhury, and Hamed Alhoori
+
+**Venue:** 2026 ACM/IEEE Joint Conference on Digital Libraries (JCDL 2026)
+
+The paper has been **accepted for presentation at JCDL 2026**.
+
+For details on dataset construction, annotation, evaluation methodology, experimental setup, results, limitations, and reproducibility, please refer to the companion paper.
+
+---
 
 ## Citation
 
+### Code Repository
+
+If you use the code or evaluation pipeline, please cite the software repository:
+
 ```bibtex
 @software{nur2026gabenchcode,
-  author = {Shafayet Nur and Adiba Ibnat Hossain and Maliha Zahan Chowdhury and Hamed Alhoori},
-  title = {{GA-Bench}: Source Code and Evaluation Pipeline},
-  year = {2026},
-  url = {https://github.com/ga-bench/GA-Bench},
-  note = {GitHub repository} }
+  author  = {Nur, Shafayet and Hossain, Adiba Ibnat and Chowdhury, Maliha Zahan and Alhoori, Hamed},
+  title   = {{GA-Bench}: Source Code and Evaluation Pipeline},
+  year    = {2026},
+  version = {1.0},
+  url     = {https://github.com/ga-bench/GA-Bench},
+  note    = {Code repository accompanying the GA-Bench project}
+}
 ```
+
+### Dataset
+
+Please also cite the GA-Bench dataset when using the released data:
+
+```bibtex
+@dataset{nur2026gabenchdataset,
+  author    = {Nur, Shafayet and Hossain, Adiba Ibnat and Chowdhury, Maliha Zahan and Alhoori, Hamed},
+  title     = {{GA-Bench Dataset: 10,000 Source-Linked Graphical Abstracts for Evaluating IMRaD Coverage}},
+  year      = {2026},
+  publisher = {Hugging Face},
+  version   = {1.0},
+  doi       = {10.57967/hf/10514},
+  url       = {https://huggingface.co/datasets/shafayet217/GA-Bench},
+  note      = {Dataset accompanying the GA-Bench project}
+}
+```
+
+### Paper
+
+The companion paper can currently be cited as:
+
+```bibtex
+@unpublished{nur2026gabench,
+  author = {Nur, Shafayet and Hossain, Adiba Ibnat and Chowdhury, Maliha Zahan and Alhoori, Hamed},
+  title  = {{GA-Bench: 10,000 Source-Linked Graphical Abstracts for Evaluating IMRaD Coverage}},
+  note   = {Accepted for presentation at the 2026 ACM/IEEE Joint Conference on Digital Libraries (JCDL 2026)},
+  year   = {2026}
+}
+```
+
+The paper citation will be updated with the official proceedings information and DOI after publication.
